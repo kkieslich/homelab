@@ -1,0 +1,16 @@
+{
+  "name": "actual-cli",
+  "version": "1.0.0",
+  "description": "Local CLI for the self-hosted Actual Budget instance: fetch a budget snapshot, analyze spending, detect subscriptions, and apply rule-based categorization.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "actual": "./bin/actual.mjs"
+  },
+  "engines": {
+    "node": ">=21.7"
+  },
+  "dependencies": {
+    "@actual-app/api": "^26.5.0"
+  }
+}

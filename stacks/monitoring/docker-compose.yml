@@ -1,0 +1,182 @@
+name: "monitoring"
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /persist/appdata/monitoring/prometheus:/prometheus
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      # Lets prometheus scrape host-published exporters that live in other
+      # compose stacks. Same pattern Caddy uses to reach host services.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    env_file:
+      - path: /run/secrets/monitoring.env
+        required: false
+      - path: ./.env
+        required: false
+    environment:
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/home-overview.json
+      # Community plugins:
+      #  - frser-sqlite-datasource: SQLite datasource for Actual dashboards.
+      #  - netsage-sankey-panel: Sankey diagram (income → group → category flow).
+      - GF_INSTALL_PLUGINS=frser-sqlite-datasource,netsage-sankey-panel
+    volumes:
+      - /persist/appdata/monitoring/grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      # SQLite file populated by stacks/actual/actual_db_sync. Mounted read-write
+      # (not :ro) because WAL mode requires every reader to create the -shm
+      # sidecar file; :ro blocks that and SQLite returns SQLITE_CANTOPEN.
+      # Grafana never writes through the SQLite datasource plugin.
+      - /persist/appdata/actual/db:/actual-db
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  # Host metrics (CPU/RAM/Disk/Netz)
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: node_exporter
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+
+  # Container-Metriken
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      # Silences "Failed to get system UUID: /etc/machine-id" log spam.
+      # Cadvisor reads the host's machine ID for container labels.
+      - /etc/machine-id:/etc/machine-id:ro
+    ports:
+      - "8080:8080"
+    command:
+      - --docker_only=true
+      - --store_container_labels=false
+      - --housekeeping_interval=15s
+      - --disable_metrics=app,cpuLoad,disk,percpu,pressure,tcp,udp,process,hugetlb,perf_event,referenced_memory,resctrl,sched,cpuset,cpu_topology,memory_numa,advtcp,oom_event
+    restart: unless-stopped
+
+  # Ping/Loss/Latenz Checks (ICMP/HTTP/DNS möglich)
+  blackbox:
+    image: prom/blackbox-exporter:latest
+    container_name: blackbox
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+    ports:
+      - "9115:9115"
+    restart: unless-stopped
+
+  # Technicolor TC4400 Exporter
+  # Falls dieses Image nicht existiert: Repo ggf. selbst bauen (docker build) oder anderes Tag nutzen.
+  tc4400_exporter:
+    image: moztr/tc4400_exporter
+    # moztr/tc4400_exporter is multi-arch (amd64/arm/arm64); let Docker pick the
+    # host arch. (Was pinned to arm64 for the old Raspberry Pi host.)
+    container_name: tc4400_exporter
+    privileged: true
+    environment:
+      - TC4400_BASE_URL=http://192.168.100.1
+      # Wenn der Exporter andere ENV-Namen nutzt, bitte an Repo-Doku anpassen.
+    ports:
+      - "9623:9623"
+    restart: unless-stopped
+
+  # Scheduled Ookla speedtests, exposed as Prometheus metrics at :80/prometheus
+  speedtest:
+    image: lscr.io/linuxserver/speedtest-tracker:latest
+    container_name: speedtest
+    restart: unless-stopped
+    ports:
+      - "8999:80"
+    volumes:
+      - /persist/appdata/monitoring/speedtest:/config
+    env_file:
+      - path: /run/secrets/monitoring.env
+        required: false
+      - path: ./.env
+        required: false
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+      - APP_URL=http://localhost:8999
+      - DB_CONNECTION=sqlite
+      # Run a speedtest once per hour. Ookla tests on a 1Gbps line use ~2GB each.
+      - SPEEDTEST_SCHEDULE=0 * * * *
+      # Alert thresholds: 80% of the 1000/50 contracted speeds and 50ms idle ping.
+      - THRESHOLD_ENABLED=true
+      - THRESHOLD_DOWNLOAD=800
+      - THRESHOLD_UPLOAD=40
+      - THRESHOLD_PING=50
+      # Allow the Prometheus container (docker network) to scrape metrics.
+      # Leaving ALLOWED_IPS blank keeps the app UI restricted the same way as defaults.
+
+  # One-shot sidecar: flips the prometheus_enabled setting in speedtest-tracker's
+  # SQLite DB so `/prometheus` starts returning metrics without clicking through
+  # the UI. Idempotent (re-runs are no-ops), exits 0 once the setting is true.
+  speedtest-bootstrap:
+    image: alpine:3
+    container_name: speedtest-bootstrap
+    depends_on:
+      speedtest:
+        condition: service_started
+    volumes:
+      - /persist/appdata/monitoring/speedtest:/config
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache sqlite >/dev/null
+        for i in $$(seq 1 90); do
+          if [ -f /config/database.sqlite ] && \
+             sqlite3 /config/database.sqlite "SELECT 1 FROM settings WHERE name='prometheus_enabled';" 2>/dev/null | grep -q 1; then
+            sqlite3 /config/database.sqlite \
+              "UPDATE settings SET payload='true' WHERE \"group\"='dataintegration' AND name='prometheus_enabled';"
+            echo "speedtest-tracker: prometheus_enabled = true"
+            exit 0
+          fi
+          echo "waiting for speedtest-tracker migration... ($$i/90)"
+          sleep 5
+        done
+        echo "timed out waiting for DB migration" >&2
+        exit 1
+    restart: "no"
+
+  # Continuous ICMP/MTR/TCP probing in one process. Replaces blackbox's icmp +
+  # tcp modules AND mtr-exporter. Internal probing cadence is set per protocol
+  # inside network_exporter.yml; Prometheus just scrapes the last result.
+  network_exporter:
+    image: syepes/network_exporter:latest
+    container_name: network_exporter
+    restart: unless-stopped
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./network-exporter/network_exporter.yml:/app/cfg/network_exporter.yml:ro
+    expose:
+      - "9427"

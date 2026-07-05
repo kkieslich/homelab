@@ -1,0 +1,74 @@
+# network_exporter — continuous ICMP ping + MTR traceroute + TCP connect probes.
+# Internal schedule: every $interval, $count probes per cycle. Prometheus scrapes
+# the last cycle's result at /metrics on :9427.
+
+conf:
+  refresh: 15m
+  nameserver_timeout: 250ms
+
+icmp:
+  interval: 5s
+  timeout: 2s
+  count: 6
+  payload_size: 56
+
+mtr:
+  interval: 15s
+  timeout: 2s
+  max-hops: 30
+  count: 6
+  payload_size: 56
+  protocol: icmp
+
+tcp:
+  interval: 15s
+  timeout: 3s
+
+http_get:
+  interval: 5m
+  timeout: 5s
+
+targets:
+  # ── Local gateway — pure ICMP; MTR is pointless for a 1-hop LAN target. ──
+  - name: router
+    host: 192.168.1.1
+    type: ICMP
+    labels:
+      role: lan
+
+  # ── ISP first hop (CMTS/BNG). ICMP+MTR so we see path changes in the DOCSIS
+  #    access network. This is the earliest indicator of ISP-side instability. ──
+  - name: isp_first_hop
+    host: 91.65.210.254
+    type: ICMP+MTR
+    labels:
+      role: wan-ingress
+
+  # ── Public references. ICMP+MTR for both gives us two independent paths to
+  #    correlate against each other — if only one degrades, it's path-specific;
+  #    if both degrade, it's local. ──
+  - name: cloudflare
+    host: 1.1.1.1
+    type: ICMP+MTR
+    labels:
+      role: public-dns
+
+  - name: google
+    host: 8.8.8.8
+    type: ICMP+MTR
+    labels:
+      role: public-dns
+
+  # ── TCP 443 handshakes: catches the case where ICMP is dropped under load
+  #    but TCP still works, or the inverse (captive-portal hijack). ──
+  - name: cloudflare_https
+    host: 1.1.1.1:443
+    type: TCP
+    labels:
+      role: tcp-reachability
+
+  - name: google_https
+    host: 8.8.8.8:443
+    type: TCP
+    labels:
+      role: tcp-reachability

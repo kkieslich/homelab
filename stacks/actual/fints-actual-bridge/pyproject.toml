@@ -1,0 +1,22 @@
+[project]
+name = "fints-actual-bridge"
+version = "0.1.0"
+description = "Fetch transactions (incl. credit cards) from German FinTS banks and import into Actual Budget"
+requires-python = ">=3.11"
+dependencies = [
+    "fints>=4.2",
+    "python-dotenv>=1.0",
+    "lxml>=5.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+fints-spike = "fints_bridge.spike:main"
+fints-fetch = "fints_bridge.fetch:main"
+fints-daemon = "fints_bridge.daemon:main"

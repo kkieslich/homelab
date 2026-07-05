@@ -1,0 +1,25 @@
+# Komodo Server resources (managed hosts running the Periphery agent).
+# Kept in this repo and applied via a Komodo Resource Sync (GitOps).
+#
+# NOTE: the Core -> Periphery connection address/auth is finalized during
+# bring-up (v2 uses a runtime onboarding key). Adjust `address` to whatever
+# Core can reach the Periphery on. Core runs as a container on um870, so it
+# reaches the host Periphery via the LAN IP (or host.docker.internal).
+
+[[server]]
+name = "um870"
+description = "Minisforum UM870 (x86_64 NixOS, livingroom-server)"
+tags = ["prod"]
+[server.config]
+address = "https://192.168.1.124:8120"
+enabled = true
+# region / stats alerting thresholds can be added here later.
+
+# The Raspberry Pi joins later as a second server:
+# [[server]]
+# name = "rpi"
+# description = "Raspberry Pi 4 (aarch64)"
+# tags = ["prod"]
+# [server.config]
+# address = "https://192.168.1.10:8120"   # or outbound mode if NAT'd
+# enabled = true

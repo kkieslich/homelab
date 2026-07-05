@@ -1,0 +1,10 @@
+name: "ledfx"
+
+services:
+  ledfx:
+    image: ghcr.io/ledfx/ledfx:latest
+    container_name: ledfx
+    network_mode: host
+    restart: always
+    volumes:
+      - /persist/appdata/ledfx/config:/home/ledfx/ledfx-config

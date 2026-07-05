@@ -1,0 +1,18 @@
+{
+  "name": "actual-db-sync",
+  "version": "1.0.0",
+  "description": "Periodically dump the Actual Budget instance into a local SQLite DB so Grafana can run real SQL queries with full history.",
+  "type": "module",
+  "private": true,
+  "main": "src/index.mjs",
+  "engines": {
+    "node": ">=21.7"
+  },
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "@actual-app/api": "^26.5.0",
+    "better-sqlite3": "^12.2.0"
+  }
+}

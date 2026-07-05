@@ -1,0 +1,20 @@
+{
+  "name": "fints-actual-bridge-importer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node sidecar — reads fints-fetch JSON and imports into Actual Budget",
+  "bin": {
+    "actual-import": "./bin/import.mjs"
+  },
+  "scripts": {
+    "import": "node bin/import.mjs"
+  },
+  "dependencies": {
+    "@actual-app/api": "^26.4.0",
+    "smol-toml": "^1.4.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

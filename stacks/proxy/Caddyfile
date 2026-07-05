@@ -1,0 +1,24 @@
+actual.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy host.docker.internal:5006
+}
+
+ha.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy host.docker.internal:8123
+}
+
+ma.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy host.docker.internal:8095
+}
+
+grafana.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy host.docker.internal:3000
+}
+
+ledfx.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy host.docker.internal:8888
+}

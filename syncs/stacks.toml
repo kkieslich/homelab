@@ -1,0 +1,95 @@
+# Komodo Stack resources — one per compose stack, Git-mode (Komodo/Periphery
+# clones this repo onto the target host and runs `docker compose` from
+# `run_directory`). Applied via a Komodo Resource Sync (GitOps).
+#
+# All data bind mounts inside these compose files are ABSOLUTE (/persist/...),
+# so they resolve to the host path regardless of Komodo's clone directory.
+# Real secrets stay in sops-nix at /run/secrets/*.env (referenced by the
+# compose files' own `env_file:` directives) — NOT in Komodo or this repo.
+#
+# Deploy order mirrors the old homeserver-compose ordering; proxy first
+# (creates nothing but is the ingress), actual last.
+
+[[stack]]
+name = "proxy"
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+git_account = "kkieslich"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/proxy"
+file_paths = ["docker-compose.yml"]
+
+[[stack]]
+name = "mqtt"
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+git_account = "kkieslich"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/mqtt"
+file_paths = ["docker-compose.yml"]
+
+[[stack]]
+name = "home-assistant"
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+git_account = "kkieslich"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/home-assistant"
+file_paths = ["docker-compose.yml"]
+
+[[stack]]
+name = "music-assistant"
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+git_account = "kkieslich"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/music-assistant"
+file_paths = ["docker-compose.yml"]
+
+[[stack]]
+name = "ledfx"
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+git_account = "kkieslich"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/ledfx"
+file_paths = ["docker-compose.yaml"]
+
+[[stack]]
+name = "monitoring"
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+git_account = "kkieslich"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/monitoring"
+file_paths = ["docker-compose.yml"]
+
+[[stack]]
+name = "actual"
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+git_account = "kkieslich"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/actual"
+file_paths = ["docker-compose.yml"]

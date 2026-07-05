@@ -1,0 +1,10 @@
+# Runtime/secret files are never committed — real secrets come from sops-nix
+# (/run/secrets/*.env) and data lives on the host under /persist.
+*.env
+*-fetch.json
+config/
+data/
+matter-server/
+ledfx-config/
+cache/
+ledfx.log*

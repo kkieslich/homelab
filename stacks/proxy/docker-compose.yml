@@ -1,0 +1,22 @@
+name: "proxy"
+
+services:
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /persist/appdata/caddy/data:/data
+      - /persist/appdata/caddy/config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - proxy_net
+
+networks:
+  proxy_net:
+    external: true

@@ -1,0 +1,591 @@
+{
+    "audio": {
+        "audio_device": 2,
+        "audio_device_name": "SENDSPIN: e9bc7f3aa88e427f837412ade0e35de1",
+        "delay_ms": 0,
+        "fft_size": 4096,
+        "mic_rate": 44100,
+        "min_volume": 0.2,
+        "onset_method": "hfc",
+        "pitch_method": "yinfft",
+        "pitch_tolerance": 0.8,
+        "sample_rate": 60,
+        "tempo_method": "default"
+    },
+    "configuration_version": "2.3.6",
+    "create_segments": false,
+    "dev_mode": false,
+    "devices": [
+        {
+            "config": {
+                "center_offset": 0,
+                "create_segments": false,
+                "icon_name": "mdi:table-large",
+                "ip_address": "192.168.1.192",
+                "name": "Matrix LED",
+                "pixel_count": 1536,
+                "refresh_rate": 43,
+                "rgbw_led": false,
+                "sync_mode": "DDP",
+                "timeout": 1
+            },
+            "id": "led-matrix",
+            "type": "wled"
+        },
+        {
+            "config": {
+                "center_offset": 0,
+                "create_segments": false,
+                "icon_name": "wled",
+                "ip_address": "192.168.1.226",
+                "name": "Living Room LED I",
+                "pixel_count": 613,
+                "refresh_rate": 43,
+                "rgbw_led": false,
+                "sync_mode": "DDP",
+                "timeout": 1
+            },
+            "id": "living-room-led-i",
+            "type": "wled"
+        },
+        {
+            "config": {
+                "center_offset": 0,
+                "create_segments": true,
+                "icon_name": "wled",
+                "ip_address": "192.168.1.218",
+                "name": "Living Room LED II",
+                "pixel_count": 465,
+                "refresh_rate": 43,
+                "rgbw_led": false,
+                "sync_mode": "DDP",
+                "timeout": 1
+            },
+            "id": "living-room-led-ii",
+            "type": "wled"
+        }
+    ],
+    "flush_on_deactivate": false,
+    "global_brightness": 0.12,
+    "global_transitions": true,
+    "host": "0.0.0.0",
+    "hosts": [
+        "192.168.1.10",
+        "192.168.1.146"
+    ],
+    "instance_id": "5be4db61-e53e-43e8-9b02-9cb57b064f2a",
+    "integrations": [],
+    "lifx_broadcast_address": "255.255.255.255",
+    "lifx_discovery_timeout": 30,
+    "melbank_collection": [
+        {
+            "config": {
+                "max_frequency": 350,
+                "min_frequency": 20,
+                "name": "Melbank 0"
+            },
+            "id": "melbank-0"
+        },
+        {
+            "config": {
+                "max_frequency": 2000,
+                "min_frequency": 20,
+                "name": "Melbank 1"
+            },
+            "id": "melbank-1"
+        },
+        {
+            "config": {
+                "max_frequency": 15000,
+                "min_frequency": 20,
+                "name": "Melbank 2"
+            },
+            "id": "melbank-2"
+        }
+    ],
+    "melbanks": {
+        "coeffs_type": "matt_mel",
+        "max_frequencies": [
+            350,
+            2000,
+            15000
+        ],
+        "min_frequency": 20,
+        "peak_isolation": 0.4,
+        "samples": 24
+    },
+    "playlists": {},
+    "port": 8888,
+    "port_s": 8443,
+    "scan_on_startup": false,
+    "scenes": {
+        "init": {
+            "name": "Init",
+            "scene_image": "Wallpaper",
+            "scene_midiactivate": null,
+            "scene_payload": null,
+            "scene_puturl": null,
+            "scene_tags": null,
+            "virtuals": {
+                "led-matrix": {
+                    "action": "activate",
+                    "config": {
+                        "background_brightness": 1,
+                        "background_color": "#000000",
+                        "background_mode": "additive",
+                        "bands": 16,
+                        "blur": 0,
+                        "brightness": 1,
+                        "center": false,
+                        "diag": false,
+                        "dump": false,
+                        "flip": false,
+                        "flip_horizontal": false,
+                        "flip_vertical": false,
+                        "frequency_range": "Lows (beat+bass)",
+                        "gradient": "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(255, 120, 0) 14%, rgb(255, 200, 0) 28%, rgb(0, 255, 0) 42%, rgb(0, 199, 140) 56%, rgb(0, 0, 255) 70%, rgb(128, 0, 128) 84%, rgb(255, 0, 178) 98%)",
+                        "gradient_roll": 0,
+                        "max_vs_mean": false,
+                        "mirror": false,
+                        "peak_color": "#ffffff",
+                        "peak_decay": 0.03,
+                        "peak_marks": false,
+                        "peak_percent": 1,
+                        "power_gradient": "Off",
+                        "ring": false,
+                        "rotate": 0,
+                        "spin": false,
+                        "spin_decay": 0.1,
+                        "spin_multiplier": 1,
+                        "test": false
+                    },
+                    "preset": "reset",
+                    "type": "equalizer2d"
+                }
+            }
+        }
+    },
+    "sendspin_always_on": false,
+    "sendspin_servers": {
+        "e9bc7f3aa88e427f837412ade0e35de1": {
+            "client_name": "LedFx",
+            "server_url": "ws://192.168.1.10:8927/sendspin"
+        }
+    },
+    "startup_playlist_id": "",
+    "startup_scene_id": "",
+    "transmission_mode": "compressed",
+    "ui_brightness_boost": 0.0,
+    "user_colors": {},
+    "user_gradients": {},
+    "user_presets": {},
+    "virtuals": [
+        {
+            "active": true,
+            "auto_generated": false,
+            "config": {
+                "center_offset": 0,
+                "complex_segments": false,
+                "frequency_max": 15000,
+                "frequency_min": 20,
+                "grouping": 1,
+                "icon_name": "mdi:table-large",
+                "mapping": "span",
+                "max_brightness": 1.0,
+                "name": "LED Matrix",
+                "preview_only": false,
+                "rotate": 0,
+                "rows": 32,
+                "transition_mode": "Add",
+                "transition_time": 0.4
+            },
+            "effects": {
+                "equalizer2d": {
+                    "config": {
+                        "advanced": true,
+                        "background_brightness": 1.0,
+                        "background_color": "#000000",
+                        "background_mode": "additive",
+                        "bands": 16,
+                        "blur": 0.0,
+                        "brightness": 1.0,
+                        "center": false,
+                        "diag": true,
+                        "dump": false,
+                        "flip": false,
+                        "flip_horizontal": false,
+                        "flip_vertical": false,
+                        "frequency_range": "Lows (beat+bass)",
+                        "gradient": "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(255, 120, 0) 14%, rgb(255, 200, 0) 28%, rgb(0, 255, 0) 42%, rgb(0, 199, 140) 56%, rgb(0, 0, 255) 70%, rgb(128, 0, 128) 84%, rgb(255, 0, 178) 98%)",
+                        "gradient_roll": 0.0,
+                        "max_vs_mean": false,
+                        "mirror": false,
+                        "peak_color": "#ffffff",
+                        "peak_decay": 0.03,
+                        "peak_marks": false,
+                        "peak_percent": 1,
+                        "power_gradient": "Off",
+                        "ring": false,
+                        "rotate": 0,
+                        "spin": false,
+                        "spin_decay": 0.1,
+                        "spin_multiplier": 1.0,
+                        "test": false
+                    },
+                    "type": "equalizer2d"
+                }
+            },
+            "id": "led-matrix",
+            "is_device": "led-matrix",
+            "last_effect": "equalizer2d",
+            "segments": [
+                [
+                    "led-matrix",
+                    0,
+                    1535,
+                    false
+                ]
+            ]
+        },
+        {
+            "auto_generated": false,
+            "config": {
+                "center_offset": 0,
+                "complex_segments": false,
+                "frequency_max": 15000,
+                "frequency_min": 20,
+                "grouping": 1,
+                "icon_name": "wled",
+                "mapping": "span",
+                "max_brightness": 1.0,
+                "name": "Living Room LED I",
+                "preview_only": false,
+                "rotate": 0,
+                "rows": 1,
+                "transition_mode": "Add",
+                "transition_time": 0.4
+            },
+            "id": "living-room-led-i",
+            "is_device": "living-room-led-i",
+            "segments": [
+                [
+                    "living-room-led-i",
+                    0,
+                    612,
+                    false
+                ]
+            ]
+        },
+        {
+            "auto_generated": false,
+            "config": {
+                "center_offset": 0,
+                "complex_segments": false,
+                "frequency_max": 15000,
+                "frequency_min": 20,
+                "grouping": 1,
+                "icon_name": "wled",
+                "mapping": "span",
+                "max_brightness": 1.0,
+                "name": "Living Room LED II",
+                "preview_only": false,
+                "rotate": 0,
+                "rows": 1,
+                "transition_mode": "Add",
+                "transition_time": 0.4
+            },
+            "id": "living-room-led-ii",
+            "is_device": "living-room-led-ii",
+            "segments": [
+                [
+                    "living-room-led-ii",
+                    0,
+                    464,
+                    false
+                ]
+            ]
+        },
+        {
+            "auto_generated": true,
+            "config": {
+                "center_offset": 0,
+                "complex_segments": false,
+                "frequency_max": 15000,
+                "frequency_min": 20,
+                "grouping": 1,
+                "icon_name": "wled",
+                "mapping": "span",
+                "max_brightness": 1.0,
+                "name": "Living Room LED II-Ceiling II",
+                "preview_only": false,
+                "rotate": 0,
+                "rows": 1,
+                "transition_mode": "Add",
+                "transition_time": 0.0
+            },
+            "id": "living-room-led-ii-ceiling-ii",
+            "is_device": false,
+            "segments": [
+                [
+                    "living-room-led-ii",
+                    0,
+                    214,
+                    false
+                ]
+            ]
+        },
+        {
+            "active": true,
+            "auto_generated": true,
+            "config": {
+                "center_offset": 0,
+                "complex_segments": false,
+                "frequency_max": 15000,
+                "frequency_min": 20,
+                "grouping": 1,
+                "icon_name": "wled",
+                "mapping": "span",
+                "max_brightness": 1.0,
+                "name": "Living Room LED II-Wine Shelf",
+                "preview_only": false,
+                "rotate": 0,
+                "rows": 1,
+                "transition_mode": "Add",
+                "transition_time": 0.0
+            },
+            "effects": {
+                "fire": {
+                    "config": {
+                        "background_brightness": 1.0,
+                        "background_color": "#000000",
+                        "blur": 0.0,
+                        "brightness": 1.0,
+                        "color_shift": 0.15,
+                        "diag": false,
+                        "fade_chance": 0.5,
+                        "fix_hues": true,
+                        "flip": false,
+                        "gradient": "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(255, 120, 0) 14%, rgb(255, 200, 0) 28%, rgb(0, 255, 0) 42%, rgb(0, 199, 140) 56%, rgb(0, 0, 255) 70%, rgb(128, 0, 128) 84%, rgb(255, 0, 178) 98%)",
+                        "gradient_roll": 0.0,
+                        "intensity": 8,
+                        "mirror": false,
+                        "speed": 0.04
+                    },
+                    "type": "fire"
+                },
+                "flame2d": {
+                    "config": {
+                        "background_brightness": 1.0,
+                        "background_color": "#000000",
+                        "background_mode": "additive",
+                        "blur": 0.0,
+                        "blur_amount": 2,
+                        "brightness": 1.0,
+                        "diag": false,
+                        "dump": false,
+                        "flip": false,
+                        "flip_horizontal": false,
+                        "flip_vertical": false,
+                        "high_band": "#0000ff",
+                        "intensity": 0.5,
+                        "low_band": "#ff0000",
+                        "mid_band": "#00ff00",
+                        "mirror": false,
+                        "rotate": 0,
+                        "spawn_rate": 0.5,
+                        "test": false,
+                        "velocity": 0.3
+                    },
+                    "type": "flame2d"
+                },
+                "melt": {
+                    "config": {
+                        "background_brightness": 0.3,
+                        "background_color": "#ff0000",
+                        "blur": 0.0,
+                        "brightness": 1.0,
+                        "diag": false,
+                        "fix_hues": true,
+                        "flip": false,
+                        "gradient": "linear-gradient(90deg, #ff00b2 0.00%,#ffa500 50.00%,#ffc800 100.00%)",
+                        "gradient_roll": 0.0,
+                        "mirror": false,
+                        "reactivity": 0.3,
+                        "speed": 0.2
+                    },
+                    "type": "melt"
+                },
+                "melt_and_sparkle": {
+                    "config": {
+                        "background_brightness": 1.0,
+                        "background_color": "#000000",
+                        "bg_bright": 0.4,
+                        "blur": 0.0,
+                        "brightness": 1.0,
+                        "diag": false,
+                        "fix_hues": true,
+                        "flip": false,
+                        "gradient": "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(255, 120, 0) 14%, rgb(255, 200, 0) 28%, rgb(0, 255, 0) 42%, rgb(0, 199, 140) 56%, rgb(0, 0, 255) 70%, rgb(128, 0, 128) 84%, rgb(255, 0, 178) 98%)",
+                        "gradient_roll": 0.0,
+                        "lava_width": 0.5,
+                        "mirror": false,
+                        "reactivity": 0.5,
+                        "speed": 0.5,
+                        "strobe_blur": 3.5,
+                        "strobe_decay_rate": 0.25,
+                        "strobe_rate": 0.75,
+                        "strobe_threshold": 0.75,
+                        "strobe_width": 0.3
+                    },
+                    "type": "melt_and_sparkle"
+                }
+            },
+            "id": "living-room-led-ii-wine-shelf",
+            "is_device": false,
+            "last_effect": "melt",
+            "segments": [
+                [
+                    "living-room-led-ii",
+                    215,
+                    464,
+                    false
+                ]
+            ]
+        },
+        {
+            "active": true,
+            "auto_generated": false,
+            "config": {
+                "center_offset": 0,
+                "complex_segments": false,
+                "frequency_max": 15000,
+                "frequency_min": 20,
+                "grouping": 1,
+                "icon_name": "mdi:led-strip-variant",
+                "mapping": "span",
+                "max_brightness": 1.0,
+                "name": "Ceiling I + II",
+                "preview_only": false,
+                "rotate": 0,
+                "rows": 1,
+                "transition_mode": "Add",
+                "transition_time": 0.4
+            },
+            "effects": {
+                "melt": {
+                    "config": {
+                        "background_brightness": 0.27,
+                        "background_color": "#0000ff",
+                        "blur": 0.0,
+                        "brightness": 1.0,
+                        "diag": false,
+                        "fix_hues": true,
+                        "flip": false,
+                        "gradient": "linear-gradient(90deg, #ff00b2 0.00%,#ffa500 50.00%,#ffc800 100.00%)",
+                        "gradient_roll": 0.0,
+                        "mirror": false,
+                        "reactivity": 0.3,
+                        "speed": 0.2
+                    },
+                    "type": "melt"
+                },
+                "melt_and_sparkle": {
+                    "config": {
+                        "background_brightness": 1.0,
+                        "background_color": "#000000",
+                        "bg_bright": 0.4,
+                        "blur": 0.0,
+                        "brightness": 1.0,
+                        "diag": false,
+                        "fix_hues": true,
+                        "flip": false,
+                        "gradient": "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(255, 120, 0) 14%, rgb(255, 200, 0) 28%, rgb(0, 255, 0) 42%, rgb(0, 199, 140) 56%, rgb(0, 0, 255) 70%, rgb(128, 0, 128) 84%, rgb(255, 0, 178) 98%)",
+                        "gradient_roll": 0.0,
+                        "lava_width": 0.5,
+                        "mirror": false,
+                        "reactivity": 0.5,
+                        "speed": 0.5,
+                        "strobe_blur": 3.5,
+                        "strobe_decay_rate": 0.25,
+                        "strobe_rate": 0.75,
+                        "strobe_threshold": 0.75,
+                        "strobe_width": 0.3
+                    },
+                    "type": "melt_and_sparkle"
+                },
+                "metro": {
+                    "config": {
+                        "background_brightness": 1.0,
+                        "background_color": "#000000",
+                        "blur": 0.0,
+                        "brightness": 1.0,
+                        "capture": false,
+                        "cpu_secs": 1.0,
+                        "diag": false,
+                        "flash_color": "#ffffff",
+                        "flip": false,
+                        "mirror": false,
+                        "pulse_period": 1,
+                        "pulse_ratio": 0.3,
+                        "steps": 4
+                    },
+                    "type": "metro"
+                },
+                "rain": {
+                    "config": {
+                        "background_brightness": 1.0,
+                        "background_color": "#000000",
+                        "blur": 1.0,
+                        "brightness": 1.0,
+                        "diag": false,
+                        "flip": false,
+                        "high_color": "#ff00b2",
+                        "high_sensitivity": 0.1,
+                        "lows_color": "#ffffff",
+                        "lows_sensitivity": 0.1,
+                        "mids_color": "#00ffff",
+                        "mids_sensitivity": 0.05,
+                        "mirror": true,
+                        "pulse_strip": "Off",
+                        "raindrop_animation": "Laser"
+                    },
+                    "type": "rain"
+                },
+                "rainbow": {
+                    "config": {
+                        "background_brightness": 1.0,
+                        "background_color": "#000000",
+                        "blur": 0.0,
+                        "brightness": 1.0,
+                        "diag": false,
+                        "flip": false,
+                        "frequency": 1.0,
+                        "mirror": false,
+                        "speed": 3.1
+                    },
+                    "type": "rainbow"
+                }
+            },
+            "id": "ceiling-i-ii",
+            "is_device": false,
+            "last_effect": "melt",
+            "segments": [
+                [
+                    "living-room-led-i",
+                    0,
+                    612,
+                    false
+                ],
+                [
+                    "living-room-led-ii",
+                    0,
+                    214,
+                    false
+                ]
+            ]
+        }
+    ],
+    "visualisation_fps": 30,
+    "visualisation_maxlen": 1536,
+    "wled_preferences": {}
+}

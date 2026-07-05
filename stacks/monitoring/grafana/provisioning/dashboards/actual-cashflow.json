@@ -1,0 +1,135 @@
+{
+  "id": null,
+  "uid": "actual-cashflow",
+  "title": "Actual — Cash Flow",
+  "tags": ["actual", "finance", "cashflow"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "style": "dark",
+  "timezone": "",
+  "refresh": "5m",
+  "time": { "from": "now-365d", "to": "now" },
+  "timepicker": {},
+  "links": [
+    { "type": "link", "title": "Home",        "url": "/d/actual-home",        "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Spending",    "url": "/d/actual-spending",    "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Recurring",   "url": "/d/actual-recurring",   "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Investments", "url": "/d/actual-investments", "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Pipeline",    "url": "/d/actual-pipeline",    "targetBlank": false, "icon": "dashboard", "tags": [] }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Income last 30 days",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT COALESCE(SUM(amount_cents), 0) / 100.0 AS value FROM income WHERE date >= date('now', '-30 days')"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "fixedColor": "green", "mode": "fixed" } } },
+      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Spend last 30 days",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT COALESCE(-SUM(amount_cents), 0) / 100.0 AS value FROM spending WHERE date >= date('now', '-30 days')"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "fixedColor": "red", "mode": "fixed" } } },
+      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Savings rate (30d)",
+      "description": "(Income − Spend) ÷ Income × 100. >0 means saving; <0 means spending more than earning.",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "WITH i AS (SELECT COALESCE(SUM(amount_cents), 0) AS v FROM income WHERE date >= date('now', '-30 days')), s AS (SELECT COALESCE(-SUM(amount_cents), 0) AS v FROM spending WHERE date >= date('now', '-30 days')) SELECT CASE WHEN i.v = 0 THEN NULL ELSE ROUND(100.0 * (i.v - s.v) / i.v, 1) END AS value FROM i, s"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "decimals": 1,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null },
+            { "color": "yellow", "value": 0 },
+            { "color": "green", "value": 20 }
+          ]}
+        }
+      },
+      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "id": 4,
+      "type": "barchart",
+      "title": "Monthly income vs spend (last 18 months)",
+      "description": "Income (positive, green) above zero; spend (negative, red) below. Bigger gap above the X axis = better month.",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 10 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "WITH months AS (SELECT DISTINCT month FROM transactions WHERE date >= date('now', '-18 months') ORDER BY month) SELECT m.month AS Month, COALESCE((SELECT SUM(amount_cents) FROM income WHERE month = m.month), 0) / 100.0 AS Income, COALESCE((SELECT SUM(amount_cents) FROM spending WHERE month = m.month), 0) / 100.0 AS Spend FROM months m ORDER BY m.month"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyEUR", "decimals": 0 },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Income" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Spend" },  "properties": [{ "id": "color", "value": { "fixedColor": "red",   "mode": "fixed" } }] }
+        ]
+      },
+      "options": { "orientation": "vertical", "xField": "Month", "stacking": "none" }
+    },
+    {
+      "id": 5,
+      "type": "piechart",
+      "title": "Income by source (last 365 days)",
+      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 9 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT COALESCE(category_name, '(uncategorized)') AS source, SUM(amount_cents) / 100.0 AS value FROM income WHERE date >= date('now', '-365 days') GROUP BY category_name ORDER BY value DESC"
+      }],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
+        "pieType": "donut"
+      },
+      "fieldConfig": { "defaults": { "unit": "currencyEUR" } }
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "Spend by category group (last 365 days)",
+      "gridPos": { "x": 12, "y": 14, "w": 12, "h": 9 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT COALESCE(category_group_name, '(none)') AS \"Group\", -SUM(amount_cents) / 100.0 AS \"Spend (EUR)\" FROM spending WHERE date >= date('now', '-365 days') GROUP BY category_group_name ORDER BY \"Spend (EUR)\" DESC"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 } },
+      "options": { "orientation": "horizontal", "xField": "Group" }
+    },
+    {
+      "id": 7,
+      "type": "netsage-sankey-panel",
+      "title": "Money flow: Income → Group → Category (last 12 months)",
+      "description": "Where every euro of income lands. Income source on the left, broad category group in the middle, specific category on the right. Width of each band = amount in euros.",
+      "gridPos": { "x": 0, "y": 23, "w": 24, "h": 14 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [
+        {
+          "refId": "A", "queryType": "table",
+          "rawQueryText": "SELECT COALESCE(category_name, 'Income') AS source, 'Total income' AS target, SUM(amount_cents) / 100.0 AS value FROM income WHERE date >= date('now', '-365 days') GROUP BY category_name UNION ALL SELECT 'Total income' AS source, COALESCE(category_group_name, '(none)') AS target, -SUM(amount_cents) / 100.0 AS value FROM spending WHERE date >= date('now', '-365 days') GROUP BY category_group_name UNION ALL SELECT category_group_name AS source, category_name AS target, -SUM(amount_cents) / 100.0 AS value FROM spending WHERE date >= date('now', '-365 days') AND category_group_name IS NOT NULL AND category_name IS NOT NULL GROUP BY category_group_name, category_name"
+        }
+      ]
+    }
+  ]
+}

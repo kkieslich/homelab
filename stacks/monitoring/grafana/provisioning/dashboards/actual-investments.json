@@ -1,0 +1,151 @@
+{
+  "id": null,
+  "uid": "actual-investments",
+  "title": "Actual — Investments",
+  "tags": ["actual", "finance", "investments"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "style": "dark",
+  "timezone": "",
+  "refresh": "5m",
+  "time": { "from": "now-365d", "to": "now" },
+  "timepicker": {},
+  "links": [
+    { "type": "link", "title": "Home",       "url": "/d/actual-home",        "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Cash Flow",  "url": "/d/actual-cashflow",    "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Spending",   "url": "/d/actual-spending",    "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Recurring",  "url": "/d/actual-recurring",   "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Pipeline",   "url": "/d/actual-pipeline",    "targetBlank": false, "icon": "dashboard", "tags": [] }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Portfolio value",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT COALESCE(SUM(total_value_cents), 0) / 100.0 AS value FROM holdings"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 } },
+      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Cost basis (where known)",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT COALESCE(SUM(acquisition_price_cents * pieces), 0) / 100.0 AS value FROM holdings WHERE acquisition_price_cents IS NOT NULL"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 } },
+      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Unrealised gain (cost-basis positions only)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT COALESCE((SUM(total_value_cents) - SUM(acquisition_price_cents * pieces)), 0) / 100.0 AS value FROM holdings WHERE acquisition_price_cents IS NOT NULL"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR", "decimals": 2,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null },
+            { "color": "green", "value": 0 }
+          ]}
+        }
+      },
+      "options": { "colorMode": "background", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Deposited this month",
+      "description": "Sum of cash-side outflows from on-budget accounts to depot accounts in the current calendar month (real Actual transfers, identified by transfer_id pointing into a depot).",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT COALESCE(-SUM(t.amount_cents), 0) / 100.0 AS value FROM transactions t WHERE t.transfer_id IS NOT NULL AND t.amount_cents < 0 AND t.account_offbudget = 0 AND t.month = strftime('%Y-%m', 'now') AND EXISTS (SELECT 1 FROM transactions t2 WHERE t2.id = t.transfer_id AND t2.account_offbudget = 1)"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 } },
+      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Portfolio value over time",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "time series",
+        "rawQueryText": "SELECT snapshot_unix AS time, SUM(total_value_cents) / 100.0 AS portfolio_eur FROM holdings_history GROUP BY snapshot_unix ORDER BY snapshot_unix",
+        "timeColumns": ["time"]
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR" } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Per-position value over time",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "time series",
+        "rawQueryText": "SELECT snapshot_unix AS time, name AS metric, total_value_cents / 100.0 AS value FROM holdings_history ORDER BY snapshot_unix",
+        "timeColumns": ["time"]
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["last"] } }
+    },
+    {
+      "id": 7,
+      "type": "piechart",
+      "title": "Allocation by position",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 9 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT name, total_value_cents / 100.0 AS value FROM holdings ORDER BY total_value_cents DESC"
+      }],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
+        "pieType": "donut"
+      },
+      "fieldConfig": { "defaults": { "unit": "currencyEUR" } }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Current holdings",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 9 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT name AS Name, isin AS ISIN, ROUND(pieces, 4) AS Shares, market_value_cents / 100.0 AS \"Price (EUR)\", total_value_cents / 100.0 AS \"Value (EUR)\", ROUND(100.0 * total_value_cents / (SELECT SUM(total_value_cents) FROM holdings), 1) AS \"% Portfolio\", CASE WHEN acquisition_price_cents IS NULL THEN NULL ELSE ROUND(100.0 * (market_value_cents - acquisition_price_cents) / acquisition_price_cents, 2) END AS \"Unrealised %\", valuation_date AS \"Valued on\" FROM holdings ORDER BY total_value_cents DESC"
+      }],
+      "fieldConfig": {
+        "defaults": { "decimals": 2 },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Unrealised %" }, "properties": [
+            { "id": "unit", "value": "percent" },
+            { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+            { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0 }
+            ]}}
+          ]}
+        ]
+      }
+    }
+  ]
+}

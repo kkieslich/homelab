@@ -1,0 +1,10 @@
+# Non-secret Komodo Variables (deploy-time knobs shared across stacks).
+# Real secrets do NOT go here — they stay in sops-nix /run/secrets/*.env,
+# referenced by each stack's compose `env_file:`. Use this only for
+# non-sensitive pins like image tags you want to centralize.
+#
+# Example:
+# [[variable]]
+# name = "ACTUAL_IMAGE_TAG"
+# value = "latest"
+# description = "actualbudget/actual-server tag"

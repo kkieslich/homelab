@@ -1,0 +1,12 @@
+modules:
+  # DNS A-record lookup. Target is the resolver; we ask it to resolve example.com
+  # and expect NOERROR. ICMP/TCP/HTTP probes are handled by network_exporter.
+  dns_udp_a:
+    prober: dns
+    timeout: 5s
+    dns:
+      transport_protocol: udp
+      preferred_ip_protocol: ip4
+      query_name: example.com
+      query_type: A
+      valid_rcodes: [NOERROR]

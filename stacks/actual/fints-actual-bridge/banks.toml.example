@@ -1,0 +1,86 @@
+# Bank profiles + Actual Budget connection + per-IBAN account mapping.
+# Copy to `banks.toml` (gitignored) and edit. Credentials stay out of this file —
+# they are read from env vars whose names are referenced here. See .env.example.
+
+[actual]
+# Self-hosted Actual server URL. The Node importer talks to this directly.
+server_url = "https://actual.home.kki.berlin"
+# Sync ID of the budget to import into. Find it in Actual: Settings → Show advanced settings → Sync ID.
+sync_id = "REPLACE-with-budget-sync-id"
+# Env var holding the Actual server password (the one set on first login).
+password_env = "ACTUAL_PASSWORD"
+# Optional: env var holding the budget encryption password if you enabled E2EE.
+# budget_password_env = "ACTUAL_BUDGET_PASSWORD"
+
+[banks.umwelt]
+display_name = "UmweltBank"
+blz = "76035000"
+fints_url = "https://fints2.atruvia.de/cgi-bin/hbciservlet"
+login_env = "BANKS_UMWELT_LOGIN"
+pin_env = "BANKS_UMWELT_PIN"
+
+  # IBAN -> Actual account UUID mapping. The Actual UUID lives in the URL when
+  # you open an account: /accounts/<uuid>. Add one [[banks.<key>.accounts]]
+  # block per account you want imported. Accounts not listed here are skipped.
+  [[banks.umwelt.accounts]]
+  iban = "DE31760350000001107152"
+  actual_account_id = "REPLACE-with-checking-account-uuid"
+  display_name = "UmweltBank Girokonto"
+
+  [[banks.umwelt.accounts]]
+  iban = "DE59760350008001107152"
+  actual_account_id = "REPLACE-with-credit-card-account-uuid"
+  display_name = "UmweltBank Kreditkarte"
+
+[banks.triodos]
+display_name = "Triodos Bank Deutschland"
+blz = "50031000"
+fints_url = "https://fints2.atruvia.de/cgi-bin/hbciservlet"
+login_env = "BANKS_TRIODOS_LOGIN"
+pin_env = "BANKS_TRIODOS_PIN"
+
+  # [[banks.triodos.accounts]]
+  # iban = "DE..."
+  # actual_account_id = "..."
+  # display_name = "Triodos Girokonto"
+
+# finanzen.net zero is a tied agent of Baader Bank AG. Both the cash account
+# (Verrechnungskonto) and the securities account (Depot) live at Baader and are
+# accessible via Baader's FinTS endpoint. The depot needs `type = "depot"` so
+# the bridge calls HKWPD (holdings list) instead of HKCAZ (transactions).
+#
+# Login: your Baader Online-Banking name + PIN, NOT the finanzen.net zero
+# web login. Authorise via your photoTAN/pushTAN device (~90-day re-auth).
+# If the bank rejects the connection, register a free FinTS Product-ID at
+# https://www.hbci-zka.de/register/prod_register.htm and set FINTS_PRODUCT_ID
+# in .env (or set product_id_env to a different env var name here).
+[banks.fnz]
+display_name = "finanzen.net zero (Baader Bank)"
+blz = "70033100"
+bic = "BDWBDEMMXXX"        # Baader Bank's BIC, needed when enumerate_accounts=false
+fints_url = "https://fints.baaderbank.de/"
+login_env = "BANKS_FNZ_LOGIN"
+pin_env = "BANKS_FNZ_PIN"
+# product_id_env = "FINTS_PRODUCT_ID"
+# Baader rejects HKSPA (account enumeration) with "9210 Auftrag abgelehnt".
+# Skip it and feed the account list directly from the [[accounts]] entries.
+enumerate_accounts = false
+# Baader also rejects HKCAZ/camt.052 with "9160 Datenelement fehlt!" — fall
+# back to HKKAZ/MT940 for cash transactions.
+prefer_mt940 = true
+
+  # Baader's portal often hides the IBAN even on cash accounts. Use
+  # `accountnumber = "..."` instead — the bridge matches on either field.
+  [[banks.fnz.accounts]]
+  accountnumber = "5547381XXX"  # 10-digit "Kontokorrentkonto" / Verrechnungskonto
+  actual_account_id = "REPLACE-with-verrechnungskonto-uuid"  # create on-budget in Actual
+  display_name = "finanzen-zero Verrechnungskonto"
+  type = "cash"
+
+  # Depot accounts at Baader have NO IBAN (not SEPA-addressable) — must use
+  # accountnumber for the lookup.
+  [[banks.fnz.accounts]]
+  accountnumber = "5547381XXX"
+  actual_account_id = "REPLACE-with-existing-depot-uuid"     # the off-budget account already exists
+  display_name = "finanzen-zero Depot"
+  type = "depot"

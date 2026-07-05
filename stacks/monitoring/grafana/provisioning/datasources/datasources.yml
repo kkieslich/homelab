@@ -1,0 +1,26 @@
+apiVersion: 1
+
+deleteDatasources:
+  - name: prometheus
+    orgId: 1
+  - name: actual
+    orgId: 1
+
+datasources:
+  - name: prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+
+  # SQLite read-replica written by stacks/actual/actual_db_sync. Mounted into
+  # this container at /actual-db (read-only) by the compose file.
+  - name: actual
+    uid: actual
+    type: frser-sqlite-datasource
+    access: proxy
+    editable: true
+    jsonData:
+      path: /actual-db/actual.sqlite

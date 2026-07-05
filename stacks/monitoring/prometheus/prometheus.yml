@@ -1,0 +1,65 @@
+global:
+  scrape_interval: 30s
+  scrape_timeout: 25s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  # Host metrics
+  - job_name: host_node
+    static_configs:
+      - targets: ["node_exporter:9100"]
+
+  # Docker containers
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # OpenWRT nodes (main router runs mwan3 + node_exporter-lua; second is AP)
+  - job_name: openwrt
+    static_configs:
+      - targets: ['192.168.1.1:9100', '192.168.1.2:9100']
+
+  # Modem
+  - job_name: tc4400
+    scrape_interval: 1m
+    scrape_timeout: 55s
+    static_configs:
+      - targets: ["tc4400_exporter:9623"]
+
+  # Continuous network quality: ICMP ping, MTR per-hop, TCP connect — all in one.
+  # Per-target probing cadence is defined in network-exporter/network_exporter.yml.
+  - job_name: network_exporter
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["network_exporter:9427"]
+
+  # DNS latency per public resolver. Blackbox-exclusive — network_exporter has
+  # no DNS probe type.
+  - job_name: blackbox_dns
+    metrics_path: /probe
+    scrape_interval: 30s
+    params:
+      module: [dns_udp_a]
+    static_configs:
+      - targets:
+          - 1.1.1.1
+          - 8.8.8.8
+          - 9.9.9.9
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
+
+  # Scheduled Ookla speedtest results via speedtest-tracker.
+  - job_name: speedtest
+    metrics_path: /prometheus
+    scrape_interval: 60s
+    static_configs:
+      - targets: ["speedtest:80"]

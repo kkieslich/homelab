@@ -1,0 +1,139 @@
+name: "actual"
+
+# Top-level extension key (recognised by Docker Compose as a non-service).
+# Holds the common config that all three fints-daemon services share — they
+# only differ in --bank and --heartbeat-interval. NOT a service itself: the
+# `x-` prefix tells compose to skip it during `up`. (Putting it under
+# `services:` makes compose start it as a real container, which silently
+# spams `--help` and exits.)
+x-fints-daemon-base: &fints-daemon-base
+  # DISABLED: the fints daemons are currently broken, so they are gated behind
+  # the "fints" compose profile and do NOT start by default (homeserver-compose
+  # runs `up` without `--profile fints`). actual_server + actual_db_sync still
+  # run and serve the migrated budget data; db_sync reads the last-known
+  # fints-state snapshot. Re-enable by fixing the bridge and removing this
+  # profile (or running `docker compose --profile fints up -d`).
+  profiles: ["fints"]
+  build:
+    context: ./fints-actual-bridge
+  restart: unless-stopped
+  env_file:
+    - path: /run/secrets/actual.env
+      required: false
+    - path: ./.env
+      required: false
+  environment:
+    # bin/import.mjs reads ACTUAL_SERVER_URL; route through the in-network
+    # service name to avoid round-tripping through Caddy.
+    ACTUAL_SERVER_URL: http://actual_server:5006
+  volumes:
+    # banks.toml is generated from secrets or restored config on the host.
+    - /persist/config/actual/banks.toml:/app/banks.toml:ro
+    # State directory (dialog/state/holdings/status files). Shared with
+    # actual_db_sync so the SQLite tables auto-update after each fetch.
+    - /persist/appdata/actual/fints-state:/state
+  # actual_server is on proxy_net (so Caddy can reach it). The daemons need
+  # to be on the same network for `actual_server:5006` to resolve via Docker
+  # DNS. Without this, "Authentication failed: network-failure" on signIn.
+  networks:
+    - proxy_net
+  depends_on:
+    - actual_server
+
+services:
+  actual_server:
+    image: actualbudget/actual-server:latest
+    container_name: actual_server
+    restart: unless-stopped
+    ports:
+      - "5006:5006"
+    volumes:
+      - /persist/appdata/actual/server-data:/data
+    networks:
+      - proxy_net
+
+
+  # UmweltBank: enforces a 5-min idle timeout AND requires SCA on every login.
+  # The daemon holds the session open with 3-min heartbeats so we only have to
+  # approve SCA once per container lifetime (typically: at startup, network
+  # drops, or the 90-day cycle).
+  #
+  # First start (and every restart): the bank requires interactive SCA. Watch
+  # the container logs and approve the push notification in your banking app:
+  #   docker compose logs -f fints_daemon_umwelt
+  fints_daemon_umwelt:
+    <<: *fints-daemon-base
+    container_name: fints_daemon_umwelt
+    command:
+      - fints-daemon
+      - --bank=umwelt
+      - --out=/state/umwelt-fetch.json
+      - --fetch-interval=3600
+      - --heartbeat-interval=180
+      - --days=30
+      - --import-after
+
+  # Triodos: no SCA on read, no aggressive idle timeout. The daemon is overkill
+  # but we run it for consistency — same image, longer heartbeat (10 min).
+  fints_daemon_triodos:
+    <<: *fints-daemon-base
+    container_name: fints_daemon_triodos
+    command:
+      - fints-daemon
+      - --bank=triodos
+      - --out=/state/triodos-fetch.json
+      - --fetch-interval=3600
+      - --heartbeat-interval=180
+      - --days=30
+      - --import-after
+
+  # Baader (finanzen.net zero): no SCA at all on read. Same setup as Triodos.
+  fints_daemon_baader:
+    <<: *fints-daemon-base
+    container_name: fints_daemon_baader
+    command:
+      - fints-daemon
+      - --bank=fnz
+      - --out=/state/fnz-fetch.json
+      - --fetch-interval=3600
+      - --heartbeat-interval=180
+      - --days=30
+      - --import-after
+
+  # Mirrors the Actual server's data into a SQLite read-replica every
+  # REFRESH_INTERVAL_SEC. Grafana mounts the same volume read-only and runs SQL
+  # queries against the snapshot, giving full historical analysis without
+  # needing Prometheus (which only stores from when scraping starts).
+  actual_db_sync:
+    container_name: actual_db_sync
+    build:
+      context: .
+      dockerfile: db-sync/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: /run/secrets/actual.env
+        required: false
+      - path: ./.env
+        required: false
+    environment:
+      # Internal docker network — bypasses Caddy/TLS/hairpin-NAT.
+      ACTUAL_SERVER_URL: http://actual_server:5006
+      REFRESH_INTERVAL_SEC: 300
+    volumes:
+      # Read-only fints-status.json + holdings.json so we can populate the
+      # pipeline_status and holdings tables.
+      - /persist/appdata/actual/fints-state:/fints:ro
+      # Read-only budget.json so we can populate the budgets table. Lives under
+      # /persist (writable) rather than the read-only flake store, so Docker can
+      # create it on first run and the actual CLI can regenerate budget.json.
+      - /persist/appdata/actual/cli-config:/budget:ro
+      # The SQLite read-replica. Shared with Grafana through /persist.
+      - /persist/appdata/actual/db:/db
+    networks:
+      - proxy_net
+    depends_on:
+      - actual_server
+
+networks:
+  proxy_net:
+    external: true

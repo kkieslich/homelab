@@ -1,0 +1,4 @@
+cli/node_modules/
+db-sync/node_modules/
+actual-data/
+sync-data/

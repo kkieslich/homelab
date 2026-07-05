@@ -1,0 +1,136 @@
+{
+  "id": null,
+  "uid": "actual-recurring",
+  "title": "Actual — Recurring",
+  "tags": ["actual", "finance", "recurring"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "style": "dark",
+  "timezone": "",
+  "refresh": "5m",
+  "time": { "from": "now-365d", "to": "now" },
+  "timepicker": {},
+  "links": [
+    { "type": "link", "title": "Home",        "url": "/d/actual-home",        "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Cash Flow",   "url": "/d/actual-cashflow",    "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Spending",    "url": "/d/actual-spending",    "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Investments", "url": "/d/actual-investments", "targetBlank": false, "icon": "dashboard", "tags": [] },
+    { "type": "link", "title": "Pipeline",    "url": "/d/actual-pipeline",    "targetBlank": false, "icon": "dashboard", "tags": [] }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total recurring per year",
+      "description": "Detected subscriptions (annualized) plus 12× the average monthly spend on Bills/Subscriptions/Memberships/Gym categories — best estimate of fixed annual commitments.",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "WITH detected AS (SELECT COALESCE(SUM(annualized_cents), 0) AS v FROM subscriptions WHERE is_active = 1), bills AS (SELECT COALESCE(-SUM(amount_cents), 0) * 12.0 / 12 AS v FROM spending WHERE category_name IN ('Bills', 'Bills (Flexible)') AND date >= date('now', '-365 days')) SELECT (detected.v + bills.v) / 100.0 AS value FROM detected, bills"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 } },
+      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Monthly equivalent",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "WITH detected AS (SELECT COALESCE(SUM(annualized_cents), 0) AS v FROM subscriptions WHERE is_active = 1), bills AS (SELECT COALESCE(-SUM(amount_cents), 0) AS v FROM spending WHERE category_name IN ('Bills', 'Bills (Flexible)') AND date >= date('now', '-365 days')) SELECT (detected.v / 12.0 + bills.v / 12.0) / 100.0 AS value FROM detected, bills"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 } },
+      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Stale (cancellation candidates)",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT COUNT(*) AS value FROM subscriptions WHERE is_active = 0"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 1 }
+          ]}
+        }
+      },
+      "options": { "colorMode": "background", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "All recurring commitments — detected subs + recurring-category spend",
+      "description": "Union of (a) cadence-detected subscriptions and (b) per-payee monthly average for transactions in Bills/Subscriptions/Memberships/Gym categories. The latter catches recurring spend the cadence detector misses (varying amounts, irregular dates).",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 12 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "WITH cat_recurring AS (SELECT COALESCE(payee_name, '(none)') AS payee, category_name AS category, COUNT(*) AS n, ROUND(-AVG(amount_cents) / 100.0, 2) AS median_eur, ROUND(-SUM(amount_cents) * 12.0 / 12 / 100.0, 2) AS per_year_eur, MAX(date) AS last_seen FROM spending WHERE category_name IN ('Bills', 'Bills (Flexible)', 'Subscriptions', 'Donations & Memberships', 'Gym & Fitness') AND date >= date('now', '-365 days') GROUP BY payee_name, category_name HAVING n >= 2) SELECT 'detected' AS Source, payee_name AS Payee, '(via detector)' AS Category, cadence AS Cadence, ROUND(median_cents / 100.0, 2) AS \"Median (EUR)\", ROUND(annualized_cents / 100.0, 2) AS \"Per year (EUR)\", count AS Count, last_seen AS \"Last seen\", days_since_last AS \"Days since\" FROM subscriptions WHERE is_active = 1 UNION ALL SELECT 'category' AS Source, payee AS Payee, category AS Category, '?' AS Cadence, median_eur AS \"Median (EUR)\", per_year_eur AS \"Per year (EUR)\", n AS Count, last_seen AS \"Last seen\", CAST(julianday('now') - julianday(last_seen) AS INTEGER) AS \"Days since\" FROM cat_recurring ORDER BY \"Per year (EUR)\" DESC"
+      }],
+      "fieldConfig": {
+        "defaults": { "decimals": 2 },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Median (EUR)" }, "properties": [{ "id": "unit", "value": "currencyEUR" }] },
+          { "matcher": { "id": "byName", "options": "Per year (EUR)" }, "properties": [{ "id": "unit", "value": "currencyEUR" }] }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Recurring spend per month (creep detector)",
+      "description": "Total spend in Bills/Subscriptions/Memberships/Gym broken down by category, last 18 months. Slow-rising lines = subscription creep.",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 9 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "time series",
+        "rawQueryText": "SELECT CAST(strftime('%s', month || '-01') AS INTEGER) AS time, category_name AS metric, -SUM(amount_cents) / 100.0 AS value FROM spending WHERE category_name IN ('Bills', 'Bills (Flexible)', 'Subscriptions', 'Donations & Memberships', 'Gym & Fitness') AND date >= date('now', '-18 months') GROUP BY month, category_name ORDER BY month",
+        "timeColumns": ["time"]
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["last", "max"] } }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Stale subscriptions — was recurring, recently silent",
+      "gridPos": { "x": 0, "y": 25, "w": 12, "h": 8 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT payee_name AS Payee, cadence AS Cadence, ROUND(median_cents / 100.0, 2) AS \"Was: median (EUR)\", ROUND(annualized_cents / 100.0, 2) AS \"Was: per year\", count AS Count, first_seen AS \"First seen\", last_seen AS \"Last seen\", days_since_last AS \"Days since\" FROM subscriptions WHERE is_active = 0 ORDER BY days_since_last ASC"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyEUR", "decimals": 2 },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Count" }, "properties": [{ "id": "unit", "value": "short" }] },
+          { "matcher": { "id": "byName", "options": "Days since" }, "properties": [{ "id": "unit", "value": "short" }] }
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "New recurring this month — payees first seen since the 1st",
+      "description": "Anomaly surface: did you intentionally sign up for these?",
+      "gridPos": { "x": 12, "y": 25, "w": 12, "h": 8 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{
+        "refId": "A", "queryType": "table",
+        "rawQueryText": "SELECT payee_name AS Payee, COUNT(*) AS Txns, ROUND(-SUM(amount_cents) / 100.0, 2) AS \"Spend so far (EUR)\", MIN(date) AS \"First seen\", MAX(date) AS \"Last seen\" FROM spending WHERE date >= date('now', 'start of month') AND payee_name NOT IN (SELECT DISTINCT payee_name FROM transactions WHERE payee_name IS NOT NULL AND date < date('now', 'start of month')) AND payee_name IS NOT NULL GROUP BY payee_name ORDER BY -SUM(amount_cents) DESC"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 2 } }
+    }
+  ]
+}
