@@ -15,12 +15,16 @@ services:
       - "443:443"
     volumes:
       - ./caddy:/etc/caddy:ro
-      - /persist/appdata/caddy/data:/data
-      - /persist/appdata/caddy/config:/config
+      - data:/data
+      - config:/config
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
       - proxy_net
+
+volumes:
+  data:
+  config:
 
 networks:
   proxy_net:
