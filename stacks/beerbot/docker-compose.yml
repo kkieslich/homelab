@@ -147,7 +147,12 @@ services:
     environment:
       TRUST_PROXY_HEADER: "1"
       ENDPOINT: https://auth.beerbot.home.kki.berlin
-      ADMIN_ENDPOINT: http://localhost:3002
+      # MUST be the host provision/migrator reach Logto at (the service name), NOT
+      # localhost: Logto's admin OIDC only accepts the m-default Management-API
+      # client when the request Host matches ADMIN_ENDPOINT. With localhost:3002
+      # here, beerbot-provision (which calls http://beerbot-logto:3002) gets
+      # `invalid_client`. Reach the admin console via a tunnel presenting this host.
+      ADMIN_ENDPOINT: http://beerbot-logto:3002
     networks: [proxy_net]
 
   # --- MinIO (object storage for pictures) ----------------------------------
