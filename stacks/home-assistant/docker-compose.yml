@@ -7,13 +7,14 @@ services:
     security_opt:
       - apparmor=unconfined
     volumes:
-      - /persist/appdata/home-assistant/matter-server:/data
+      - matter-server:/data
     network_mode: host
   homeassistant:
     container_name: homeassistant
     image: "ghcr.io/home-assistant/home-assistant:stable"
     volumes:
-      - /persist/appdata/home-assistant/config:/config
+      - config:/config
+      # Host resources (not stack data) — kept as bind mounts.
       - /etc/localtime:/etc/localtime:ro
       - /run/dbus:/run/dbus:ro
     restart: unless-stopped
@@ -21,3 +22,7 @@ services:
     network_mode: host
     environment:
       TZ: Europe/Amsterdam
+
+volumes:
+  config:
+  matter-server:
