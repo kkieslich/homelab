@@ -41,11 +41,12 @@ services:
       MINIO_PUBLIC_ENDPOINT: https://cdn.beerbot.home.kki.berlin
       MINIO_BUCKET: beerbot
       MINIO_PRESIGNED_URL_TTL_HOURS: "24"
-      SMTP_PORT: "587"
-      SMTP_FROM: support@beerbot.app
-      SMTP_SUPPORT_TO: support@beerbot.app
-      # ConnectionStrings__beerbotData, MINIO_ACCESS_KEY/SECRET_KEY,
-      # SMTP_HOST/USER/PASSWORD come from /run/secrets/beerbot.env.
+      # Push notifications OFF: this test instance forward-syncs REAL device tokens
+      # from old prod, so it must never send (would ping real users' phones). The
+      # API boots fine without the Firebase key (none is mounted here).
+      NOTIFICATIONS_ENABLED: "false"
+      # POSTGRES_* (DB connection is built from them) and MINIO_ROOT_USER/PASSWORD
+      # come from /run/secrets/beerbot.env.
     networks: [proxy_net]
 
   # --- Admin API (served under admin host at /api, prefix stripped by Caddy) --
@@ -64,7 +65,7 @@ services:
       API_AUTH_ISSUER: https://auth.beerbot.home.kki.berlin
       ADMIN_API_AUDIENCE: https://admin.beerbot.app
       ADMIN_WEB_ORIGINS: https://admin.beerbot.home.kki.berlin
-      # BEERBOT_DATA_CONNECTION comes from /run/secrets/beerbot.env.
+      # POSTGRES_* (DB connection is built from them) come from /run/secrets/beerbot.env.
     networks: [proxy_net]
 
   # --- Expo web app (runtime config → /env.js on start) ---------------------
@@ -139,7 +140,11 @@ services:
     restart: unless-stopped
     depends_on:
       beerbot-db: { condition: service_healthy }
-    entrypoint: ["sh", "-c", "npm run cli db seed -- --swe && npm start"]
+    # DB_URL is assembled here from the POSTGRES_* parts (delivered via the
+    # env_file secret), so the password lives only in POSTGRES_PASSWORD — not a
+    # second DB_URL literal. `$$VAR` reads the container env (this stack uses no
+    # compose interpolation on purpose).
+    entrypoint: ["sh", "-c", "export DB_URL=\"postgresql://$$POSTGRES_USER:$$POSTGRES_PASSWORD@beerbot-db:5432/logto\" && npm run cli db seed -- --swe && npm start"]
     env_file:
       - path: /run/secrets/beerbot.env
         required: false
@@ -147,7 +152,6 @@ services:
       TRUST_PROXY_HEADER: "1"
       ENDPOINT: https://auth.beerbot.home.kki.berlin
       ADMIN_ENDPOINT: http://localhost:3002
-      # DB_URL (postgresql://beerbot:<pw>@beerbot-db:5432/logto) from the secret.
     networks: [proxy_net]
 
   # --- MinIO (object storage for pictures) ----------------------------------
@@ -199,7 +203,8 @@ services:
       # Talk to Logto internally (no dependence on public DNS/TLS at deploy time).
       LOGTO_ENDPOINT: http://beerbot-logto:3001
       LOGTO_ADMIN_ENDPOINT: http://beerbot-logto:3002
-      # BEERBOT_DATA_CONNECTION + LOGTO_M2M_SECRET come from the secret.
+      # POSTGRES_* come from the secret; the Logto M2M secret is resolved live
+      # from the co-located logto DB (nothing to configure).
     networks: [proxy_net]
 
   # --- migrator (parallel-run): forward-sync LIVE data from old prod ---------
@@ -226,9 +231,10 @@ services:
       MINIO_BUCKET: beerbot
       # In-container path of the mounted key (matches the volume below).
       MIGRATOR_TUNNEL_KEY_FILE: /keys/old-vps
-      # BEERBOT_DATA_CONNECTION, BEERBOT_LEGACY_CONNECTION,
-      # BEERBOT_LEGACY_AUTH_CONNECTION, MIGRATOR_TUNNEL_TARGET, MINIO_ACCESS_KEY/
-      # SECRET_KEY, LOGTO_M2M_SECRET come from /run/secrets/beerbot.env.
+      # POSTGRES_* (new DB), BEERBOT_LEGACY_CONNECTION (old DB; the auth one is
+      # derived from it), MIGRATOR_TUNNEL_TARGET, MINIO_ROOT_USER/PASSWORD come
+      # from /run/secrets/beerbot.env. (The Logto M2M secret is resolved live from
+      # the co-located logto DB — nothing to configure.)
     volumes:
       # sops-nix delivers the old-prod SSH private key here (read-only).
       - /run/secrets/beerbot-old-vps:/keys/old-vps:ro

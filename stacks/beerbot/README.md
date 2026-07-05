@@ -29,8 +29,9 @@ bootstrap on each deploy), `beerbot-migrator` (`sync --watch` from old prod).
 1. **GHCR pull credential** — the images are private. Add a registry account
    (GitHub PAT with `read:packages`) in Komodo, or make the packages public.
 2. **Secret** — deliver `/run/secrets/beerbot.env` via sops-nix (home-infrastructure
-   repo). Keys: see [`beerbot.env.example`](./beerbot.env.example). Connection
-   strings must use the in-stack host `beerbot-db`.
+   repo). Keys: see [`beerbot.env.example`](./beerbot.env.example). Set
+   `POSTGRES_HOST=beerbot-db` (the in-stack service name) — all DB connections
+   are built from the `POSTGRES_*` parts.
 3. **Old-prod SSH key** — deliver the private key for the migration tunnel to
    `/run/secrets/beerbot-old-vps` (mounted read-only at `/keys/old-vps`), and set
    `MIGRATOR_TUNNEL_TARGET` in the secret.
