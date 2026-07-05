@@ -1,0 +1,4 @@
+# Real secrets come from sops-nix (/run/secrets/beerbot.env); a local .env is an
+# optional non-committed override. Never commit either.
+*.env
+!*.env.example
