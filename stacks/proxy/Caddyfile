@@ -1,6 +1,9 @@
 actual.home.kki.berlin {
     encode gzip zstd
-    reverse_proxy host.docker.internal:5006
+    # actual_server shares proxy_net with caddy — route by service name to avoid
+    # a hairpin-NAT timeout that host.docker.internal:5006 hits for same-network
+    # backends (same pattern as the beerbot routes below).
+    reverse_proxy actual_server:5006
 }
 
 ha.home.kki.berlin {
@@ -26,4 +29,42 @@ ledfx.home.kki.berlin {
 komodo.home.kki.berlin {
     encode gzip zstd
     reverse_proxy host.docker.internal:9120
+}
+
+# --- beerbot (routed by service name over proxy_net; no host ports) ---
+beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-web:80
+}
+
+api.beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-api:80
+}
+
+auth.beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-logto:3001
+}
+
+admin.beerbot.home.kki.berlin {
+    encode gzip zstd
+    # /api/* → admin API with the /api prefix stripped (handle_path); everything
+    # else → the admin SPA.
+    handle_path /api/* {
+        reverse_proxy beerbot-admin-api:80
+    }
+    handle {
+        reverse_proxy beerbot-admin-web:80
+    }
+}
+
+cdn.beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-minio:9000
+}
+
+www.beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-landing:80
 }
