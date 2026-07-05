@@ -8,7 +8,7 @@ services:
       - --storage.tsdb.retention.time=30d
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - /persist/appdata/monitoring/prometheus:/prometheus
+      - prometheus:/prometheus
     ports:
       - "9090:9090"
     extra_hosts:
@@ -20,11 +20,6 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
-    env_file:
-      - path: /run/secrets/monitoring.env
-        required: false
-      - path: ./.env
-        required: false
     environment:
       - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/home-overview.json
       # Community plugins:
@@ -32,13 +27,14 @@ services:
       #  - netsage-sankey-panel: Sankey diagram (income → group → category flow).
       - GF_INSTALL_PLUGINS=frser-sqlite-datasource,netsage-sankey-panel
     volumes:
-      - /persist/appdata/monitoring/grafana:/var/lib/grafana
+      - grafana:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      # SQLite file populated by stacks/actual/actual_db_sync. Mounted read-write
-      # (not :ro) because WAL mode requires every reader to create the -shm
-      # sidecar file; :ro blocks that and SQLite returns SQLITE_CANTOPEN.
+      # SQLite file populated by stacks/actual/actual_db_sync — the same named
+      # volume that stack owns, referenced here as external (actual_db). Mounted
+      # read-write (not :ro) because WAL mode requires every reader to create the
+      # -shm sidecar file; :ro blocks that and SQLite returns SQLITE_CANTOPEN.
       # Grafana never writes through the SQLite datasource plugin.
-      - /persist/appdata/actual/db:/actual-db
+      - actual-db:/actual-db
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -120,3 +116,12 @@ services:
       - ./network-exporter/network_exporter.yml:/app/cfg/network_exporter.yml:ro
     expose:
       - "9427"
+
+volumes:
+  prometheus:
+  grafana:
+  # Owned by the actual stack (its `db` volume); mounted here read-write so
+  # Grafana's SQLite datasource can read the actual_db_sync read-replica.
+  actual-db:
+    external: true
+    name: actual_db
