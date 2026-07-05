@@ -86,6 +86,12 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/actual"
 file_paths = ["docker-compose.yml"]
+# Decrypt the env secret (enc.env -> .env) and the fints banks config
+# (banks.toml.enc -> banks.toml) with the host age key just before compose runs.
+[stack.config.pre_deploy]
+path = ""
+shell_mode = true
+command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary enc.env > .env && chmod 600 .env && SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary banks.toml.enc > banks.toml && chmod 644 banks.toml'
 
 # BeerBot — runs the GHCR images built by github.com/BeerbotApp/BeerBot. Live prod
 # data is forward-synced by the in-stack migrator (parallel run). GHCR images are

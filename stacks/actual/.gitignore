@@ -2,3 +2,6 @@ cli/node_modules/
 db-sync/node_modules/
 actual-data/
 sync-data/
+# Deploy-time decrypted plaintext (from enc.env / banks.toml.enc) — never commit.
+.env
+banks.toml

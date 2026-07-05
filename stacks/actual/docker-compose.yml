@@ -18,8 +18,7 @@ x-fints-daemon-base: &fints-daemon-base
     context: ./fints-actual-bridge
   restart: unless-stopped
   env_file:
-    - path: /run/secrets/actual.env
-      required: false
+    # Decrypted from enc.env by the Komodo pre_deploy step (see syncs/stacks.toml).
     - path: ./.env
       required: false
   environment:
@@ -27,11 +26,12 @@ x-fints-daemon-base: &fints-daemon-base
     # service name to avoid round-tripping through Caddy.
     ACTUAL_SERVER_URL: http://actual_server:5006
   volumes:
-    # banks.toml is generated from secrets or restored config on the host.
-    - /persist/config/actual/banks.toml:/app/banks.toml:ro
+    # banks.toml is decrypted from banks.toml.enc by pre_deploy (0644, no owner
+    # strictness — read-only config).
+    - ./banks.toml:/app/banks.toml:ro
     # State directory (dialog/state/holdings/status files). Shared with
     # actual_db_sync so the SQLite tables auto-update after each fetch.
-    - /persist/appdata/actual/fints-state:/state
+    - fints-state:/state
   # actual_server is on proxy_net (so Caddy can reach it). The daemons need
   # to be on the same network for `actual_server:5006` to resolve via Docker
   # DNS. Without this, "Authentication failed: network-failure" on signIn.
@@ -48,7 +48,7 @@ services:
     ports:
       - "5006:5006"
     volumes:
-      - /persist/appdata/actual/server-data:/data
+      - server-data:/data
     networks:
       - proxy_net
 
@@ -111,8 +111,6 @@ services:
       dockerfile: db-sync/Dockerfile
     restart: unless-stopped
     env_file:
-      - path: /run/secrets/actual.env
-        required: false
       - path: ./.env
         required: false
     environment:
@@ -122,17 +120,24 @@ services:
     volumes:
       # Read-only fints-status.json + holdings.json so we can populate the
       # pipeline_status and holdings tables.
-      - /persist/appdata/actual/fints-state:/fints:ro
-      # Read-only budget.json so we can populate the budgets table. Lives under
-      # /persist (writable) rather than the read-only flake store, so Docker can
-      # create it on first run and the actual CLI can regenerate budget.json.
-      - /persist/appdata/actual/cli-config:/budget:ro
-      # The SQLite read-replica. Shared with Grafana through /persist.
-      - /persist/appdata/actual/db:/db
+      - fints-state:/fints:ro
+      # Read-only budget.json so we can populate the budgets table.
+      - cli-config:/budget:ro
+      # The SQLite read-replica. Shared with Grafana (monitoring stack mounts
+      # this same named volume, actual_db, as external:true).
+      - db:/db
     networks:
       - proxy_net
     depends_on:
       - actual_server
+
+volumes:
+  server-data:
+  fints-state:
+  cli-config:
+  # The SQLite read-replica, shared read-only with the monitoring stack, which
+  # references it as an external volume named `actual_db`.
+  db:
 
 networks:
   proxy_net:
