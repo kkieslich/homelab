@@ -112,4 +112,4 @@ registry_account = "kkieslich"
 [stack.config.pre_deploy]
 path = ""
 shell_mode = true
-command = 'for d in . stacks/beerbot; do [ -f "$d/enc.env" ] && SOPS_AGE_KEY_FILE=/persist/config/sops/age/keys.txt sops -d --input-type binary --output-type binary "$d/enc.env" > "$d/.env" && chmod 600 "$d/.env" && echo "decrypted $d/.env"; done'
+command = 'for d in . stacks/beerbot; do [ -f "$d/enc.env" ] && SOPS_AGE_KEY_FILE=/var/lib/komodo-periphery/age-key.txt sops -d --input-type binary --output-type binary "$d/enc.env" > "$d/.env" && chmod 600 "$d/.env" && echo "decrypted $d/.env"; done'
