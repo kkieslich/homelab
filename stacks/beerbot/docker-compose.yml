@@ -183,12 +183,16 @@ services:
       - path: ./.env
         required: false
     # $$VAR (escaped) → read from the CONTAINER env (env_file), not compose interpolation.
+    # Credentials go through MC_HOST_<alias> (URL userinfo) rather than positional
+    # args to `mc alias set`: MINIO_ROOT_PASSWORD can start with '-', which mc would
+    # otherwise parse as a CLI flag ("flag provided but not defined"). Looping on the
+    # actual `mb` doubles as the readiness wait.
     entrypoint: >
       /bin/sh -c "
-      until /usr/bin/mc alias set local http://beerbot-minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" >/dev/null 2>&1; do
+      export MC_HOST_local=\"http://$$MINIO_ROOT_USER:$$MINIO_ROOT_PASSWORD@beerbot-minio:9000\";
+      until /usr/bin/mc mb --ignore-existing local/beerbot >/dev/null 2>&1; do
         echo 'waiting for minio...' && sleep 1;
       done &&
-      /usr/bin/mc mb --ignore-existing local/beerbot &&
       echo 'minio ready: bucket beerbot present'
       "
     restart: "no"
