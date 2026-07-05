@@ -56,10 +56,3 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: blackbox:9115
-
-  # Scheduled Ookla speedtest results via speedtest-tracker.
-  - job_name: speedtest
-    metrics_path: /prometheus
-    scrape_interval: 60s
-    static_configs:
-      - targets: ["speedtest:80"]

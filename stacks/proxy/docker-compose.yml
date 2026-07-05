@@ -5,11 +5,16 @@ services:
     image: caddy:latest
     container_name: caddy
     restart: unless-stopped
+    # --watch auto-reloads on Caddyfile changes. The config is mounted as a
+    # DIRECTORY (./caddy), not a single file, so that when Komodo git-pulls a new
+    # Caddyfile (which replaces the file's inode) the running container sees it —
+    # a single-file bind mount would keep the stale inode until recreated.
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --watch
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy:/etc/caddy:ro
       - /persist/appdata/caddy/data:/data
       - /persist/appdata/caddy/config:/config
     extra_hosts:
