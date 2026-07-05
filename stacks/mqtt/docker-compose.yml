@@ -7,6 +7,11 @@ services:
     ports:
       - "1883:1883"
     volumes:
-      - /persist/appdata/mqtt/config:/mosquitto/config
-      - /persist/appdata/mqtt/data:/mosquitto/data
-      - /persist/appdata/mqtt/log:/mosquitto/log
+      - config:/mosquitto/config
+      - data:/mosquitto/data
+      - log:/mosquitto/log
+
+volumes:
+  config:
+  data:
+  log:
