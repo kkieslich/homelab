@@ -100,3 +100,7 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/beerbot"
 file_paths = ["docker-compose.yml"]
+# Private GHCR images — Periphery does `docker login ghcr.io` with this account
+# (created by the komodo-bootstrap oneshot from /run/secrets/beerbot-ghcr.env).
+registry_provider = "ghcr.io"
+registry_account = "kkieslich"
