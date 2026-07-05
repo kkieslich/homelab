@@ -22,6 +22,15 @@ name: "beerbot"
 # needs it root-owned, which a pre_deploy decrypt (runs as komodo-periphery)
 # cannot produce. The migrator is transitional, so this is temporary.
 
+# Shared NON-SECRET MinIO endpoint config. Every backend service that talks to
+# MinIO reads these, so they are defined once here and merged into each service's
+# environment (via `<<: *minio-env`) — never in the secret. Only MINIO_ROOT_USER/
+# PASSWORD (real secrets) live in enc.env.
+x-minio-env: &minio-env
+  MINIO_ENDPOINT: http://beerbot-minio:9000
+  MINIO_PUBLIC_ENDPOINT: https://cdn.beerbot.home.kki.berlin
+  MINIO_BUCKET: beerbot
+
 services:
   # --- REST API -------------------------------------------------------------
   beerbot-api:
@@ -35,14 +44,12 @@ services:
       - path: ./.env
         required: false
     environment:
+      <<: *minio-env
       # Bare Logto endpoint (Startup.cs appends /oidc). Audience = the Logto API
       # resource indicator (a fixed logical id, NOT a reachable host).
       API_AUTH_ISSUER: https://auth.beerbot.home.kki.berlin
       API_AUDIENCE: https://api.beerbot.app
       APP_WEB_ORIGINS: https://beerbot.home.kki.berlin
-      MINIO_ENDPOINT: http://beerbot-minio:9000
-      MINIO_PUBLIC_ENDPOINT: https://cdn.beerbot.home.kki.berlin
-      MINIO_BUCKET: beerbot
       MINIO_PRESIGNED_URL_TTL_HOURS: "24"
       # Push notifications OFF: this test instance forward-syncs REAL device tokens
       # from old prod, so it must never send (would ping real users' phones). The
@@ -63,6 +70,7 @@ services:
       - path: ./.env
         required: false
     environment:
+      <<: *minio-env
       API_AUTH_ISSUER: https://auth.beerbot.home.kki.berlin
       ADMIN_API_AUDIENCE: https://admin.beerbot.app
       ADMIN_WEB_ORIGINS: https://admin.beerbot.home.kki.berlin
@@ -201,6 +209,7 @@ services:
       - path: ./.env
         required: false
     environment:
+      <<: *minio-env
       # Talk to Logto internally (no dependence on public DNS/TLS at deploy time).
       LOGTO_ENDPOINT: http://beerbot-logto:3001
       LOGTO_ADMIN_ENDPOINT: http://beerbot-logto:3002
@@ -226,11 +235,9 @@ services:
       - path: ./.env
         required: false
     environment:
+      <<: *minio-env
       LOGTO_ENDPOINT: http://beerbot-logto:3001
       LOGTO_ADMIN_ENDPOINT: http://beerbot-logto:3002
-      MINIO_ENDPOINT: http://beerbot-minio:9000
-      MINIO_PUBLIC_ENDPOINT: https://cdn.beerbot.home.kki.berlin
-      MINIO_BUCKET: beerbot
       # In-container path of the mounted key (matches the volume below).
       MIGRATOR_TUNNEL_KEY_FILE: /keys/old-vps
       # POSTGRES_* (new DB), BEERBOT_LEGACY_CONNECTION (old DB; the auth one is
