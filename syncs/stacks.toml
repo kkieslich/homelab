@@ -16,7 +16,6 @@ tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
 git_provider = "github.com"
-git_account = "kkieslich"
 repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/proxy"
@@ -28,7 +27,6 @@ tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
 git_provider = "github.com"
-git_account = "kkieslich"
 repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/mqtt"
@@ -40,7 +38,6 @@ tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
 git_provider = "github.com"
-git_account = "kkieslich"
 repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/home-assistant"
@@ -52,7 +49,6 @@ tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
 git_provider = "github.com"
-git_account = "kkieslich"
 repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/music-assistant"
@@ -64,7 +60,6 @@ tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
 git_provider = "github.com"
-git_account = "kkieslich"
 repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/ledfx"
@@ -76,7 +71,6 @@ tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
 git_provider = "github.com"
-git_account = "kkieslich"
 repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/monitoring"
@@ -88,8 +82,21 @@ tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
 git_provider = "github.com"
-git_account = "kkieslich"
 repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/actual"
+file_paths = ["docker-compose.yml"]
+
+# BeerBot — runs the GHCR images built by github.com/BeerbotApp/BeerBot. Live prod
+# data is forward-synced by the in-stack migrator (parallel run). GHCR images are
+# private: add a registry account (PAT read:packages) in Komodo, or make public.
+[[stack]]
+name = "beerbot"
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/beerbot"
 file_paths = ["docker-compose.yml"]
