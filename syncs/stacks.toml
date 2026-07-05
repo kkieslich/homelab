@@ -91,7 +91,7 @@ file_paths = ["docker-compose.yml"]
 [stack.config.pre_deploy]
 path = ""
 shell_mode = true
-command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary enc.env > .env && chmod 600 .env && SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary banks.toml.enc > banks.toml && chmod 644 banks.toml'
+command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env && SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary banks.toml.enc > banks.toml && chmod 644 banks.toml'
 
 # BeerBot — runs the GHCR images built by github.com/BeerbotApp/BeerBot. Live prod
 # data is forward-synced by the in-stack migrator (parallel run). GHCR images are
@@ -118,4 +118,4 @@ registry_account = "kkieslich"
 [stack.config.pre_deploy]
 path = ""
 shell_mode = true
-command = 'SOPS_AGE_KEY_FILE=/var/lib/komodo-periphery/age-key.txt sops -d --input-type binary --output-type binary enc.env > .env && chmod 600 .env'
+command = 'SOPS_AGE_KEY_FILE=/var/lib/komodo-periphery/age-key.txt sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env'
