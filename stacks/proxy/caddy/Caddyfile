@@ -47,6 +47,14 @@ auth.beerbot.home.kki.berlin {
     reverse_proxy beerbot-logto:3001
 }
 
+# Logto ADMIN console (port 3002). ADMIN_ENDPOINT points at this host so the
+# console SPA works in the browser; provision/migrator also call it here so their
+# request Host matches ADMIN_ENDPOINT (Logto's admin OIDC requires that).
+logto-admin.beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-logto:3002
+}
+
 admin.beerbot.home.kki.berlin {
     encode gzip zstd
     # /api/* → admin API with the /api prefix stripped (handle_path); everything

@@ -155,12 +155,10 @@ services:
     environment:
       TRUST_PROXY_HEADER: "1"
       ENDPOINT: https://auth.beerbot.home.kki.berlin
-      # MUST be the host provision/migrator reach Logto at (the service name), NOT
-      # localhost: Logto's admin OIDC only accepts the m-default Management-API
-      # client when the request Host matches ADMIN_ENDPOINT. With localhost:3002
-      # here, beerbot-provision (which calls http://beerbot-logto:3002) gets
-      # `invalid_client`. Reach the admin console via a tunnel presenting this host.
-      ADMIN_ENDPOINT: http://beerbot-logto:3002
+      # Public admin-console URL (Caddy → beerbot-logto:3002). The console SPA uses
+      # this in the browser, and provision/migrator call the same URL so their
+      # request Host matches — Logto's admin OIDC requires Host == ADMIN_ENDPOINT.
+      ADMIN_ENDPOINT: https://logto-admin.beerbot.home.kki.berlin
     networks: [proxy_net]
 
   # --- MinIO (object storage for pictures) ----------------------------------
@@ -212,7 +210,7 @@ services:
       <<: *minio-env
       # Talk to Logto internally (no dependence on public DNS/TLS at deploy time).
       LOGTO_ENDPOINT: http://beerbot-logto:3001
-      LOGTO_ADMIN_ENDPOINT: http://beerbot-logto:3002
+      LOGTO_ADMIN_ENDPOINT: https://logto-admin.beerbot.home.kki.berlin
       # POSTGRES_* come from ./.env; the Logto M2M secret is resolved live
       # from the co-located logto DB (nothing to configure).
     networks: [proxy_net]
@@ -237,7 +235,7 @@ services:
     environment:
       <<: *minio-env
       LOGTO_ENDPOINT: http://beerbot-logto:3001
-      LOGTO_ADMIN_ENDPOINT: http://beerbot-logto:3002
+      LOGTO_ADMIN_ENDPOINT: https://logto-admin.beerbot.home.kki.berlin
       # In-container path of the mounted key (matches the volume below).
       MIGRATOR_TUNNEL_KEY_FILE: /keys/old-vps
       # POSTGRES_* (new DB), BEERBOT_LEGACY_CONNECTION (old DB; the auth one is
