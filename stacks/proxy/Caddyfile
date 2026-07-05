@@ -22,3 +22,8 @@ ledfx.home.kki.berlin {
     encode gzip zstd
     reverse_proxy host.docker.internal:8888
 }
+
+komodo.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy host.docker.internal:9120
+}
