@@ -1,0 +1,22 @@
+# sops encryption policy for homelab stack secrets.
+#
+# The age *public* key below is the recipient that can encrypt secrets here; the
+# matching *private* key lives ONLY on the server at
+# /persist/config/sops/age/keys.txt (never in git). Komodo's pre_deploy step
+# decrypts these files at deploy time using that host key.
+#
+# Encrypted files committed here (enc.env, *.enc) are safe to store in git — they
+# are useless without the private key. Encrypt with (from repo root):
+#   sops encrypt --input-type binary --output-type binary \
+#     --filename-override stacks/<stack>/enc.env <plaintext.env> > stacks/<stack>/enc.env
+keys:
+  - &um870 age1tvatp8kd467s8xhu29l83zhf4w0jr8hsz6hv9jwrz48t5q7305pqw92st3
+creation_rules:
+  - path_regex: (.*/)?enc\.env$
+    key_groups:
+      - age:
+          - *um870
+  - path_regex: \.enc$
+    key_groups:
+      - age:
+          - *um870

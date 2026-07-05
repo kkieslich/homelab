@@ -1,4 +1,5 @@
-# Real secrets come from sops-nix (/run/secrets/beerbot.env); a local .env is an
-# optional non-committed override. Never commit either.
+# Runtime secrets live here as sops-encrypted enc.env (committed, safe). Komodo's
+# pre_deploy decrypts it to a gitignored .env on the host at deploy time.
 *.env
+!enc.env
 !*.env.example

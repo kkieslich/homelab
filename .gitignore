@@ -1,6 +1,9 @@
-# Runtime/secret files are never committed — real secrets come from sops-nix
-# (/run/secrets/*.env) and data lives on the host under /persist.
+# Plaintext runtime/secret files are never committed. Real secrets live here as
+# sops-encrypted `enc.env` (and *.enc) blobs — safe to commit — and are
+# decrypted to a gitignored `.env` on the host by Komodo's pre_deploy step.
 *.env
+!enc.env
+*.enc.tmp
 *-fetch.json
 config/
 data/

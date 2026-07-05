@@ -6,16 +6,21 @@ name: "beerbot"
 # Conventions (see repo README):
 #  - Public-facing services are routed by the `proxy` Caddy stack over proxy_net
 #    (by service name — no host ports). Routes live in stacks/proxy/Caddyfile.
-#  - Secrets come from sops-nix at /run/secrets/beerbot.env (env_file). This
-#    stack hardcodes only NON-secret, host-specific config (the *.home.kki.berlin
-#    URLs) inline. See beerbot.env.example for the keys the secret must contain.
-#  - Data lives on the host under /persist/appdata/beerbot/{db,minio}.
-#  - GHCR images are private: add a registry account (PAT with read:packages) in
-#    Komodo, or make the packages public.
+#  - Runtime secrets live in THIS repo as sops-encrypted `enc.env`. Komodo's
+#    pre_deploy step decrypts it to `./.env` (gitignored) with the host age key
+#    just before deploy; every service reads it via `env_file: ./.env`. So the
+#    repo only ever holds ciphertext and the host owns no beerbot env secret.
+#    See enc.env / the ownership-decoupling design; non-secret host-specific
+#    config (the *.home.kki.berlin URLs) stays inline below.
+#  - Data lives in named Docker volumes (db, minio) — Docker owns them, which
+#    also lets postgres chown its own data dir (a host bind mount cannot).
+#  - GHCR images are private: the `ghcr.io` registry account (created by
+#    komodo-bootstrap) authenticates the pull.
 #
-# There is NO compose-level ${VAR} interpolation here on purpose — everything is
-# either an inline literal or comes from the container env_file — so no --env-file
-# is needed and secrets never touch this repo or Komodo.
+# The migrator's old-prod SSH key is the one exception still delivered by
+# sops-nix at /run/secrets/beerbot-old-vps: OpenSSH's strict ownership check
+# needs it root-owned, which a pre_deploy decrypt (runs as komodo-periphery)
+# cannot produce. The migrator is transitional, so this is temporary.
 
 services:
   # --- REST API -------------------------------------------------------------
@@ -27,8 +32,6 @@ services:
       beerbot-db: { condition: service_healthy }
       beerbot-minio: { condition: service_started }
     env_file:
-      - path: /run/secrets/beerbot.env
-        required: false
       - path: ./.env
         required: false
     environment:
@@ -46,7 +49,7 @@ services:
       # API boots fine without the Firebase key (none is mounted here).
       NOTIFICATIONS_ENABLED: "false"
       # POSTGRES_* (DB connection is built from them) and MINIO_ROOT_USER/PASSWORD
-      # come from /run/secrets/beerbot.env.
+      # come from ./.env.
     networks: [proxy_net]
 
   # --- Admin API (served under admin host at /api, prefix stripped by Caddy) --
@@ -57,15 +60,13 @@ services:
     depends_on:
       beerbot-db: { condition: service_healthy }
     env_file:
-      - path: /run/secrets/beerbot.env
-        required: false
       - path: ./.env
         required: false
     environment:
       API_AUTH_ISSUER: https://auth.beerbot.home.kki.berlin
       ADMIN_API_AUDIENCE: https://admin.beerbot.app
       ADMIN_WEB_ORIGINS: https://admin.beerbot.home.kki.berlin
-      # POSTGRES_* (DB connection is built from them) come from /run/secrets/beerbot.env.
+      # POSTGRES_* (DB connection is built from them) come from ./.env.
     networks: [proxy_net]
 
   # --- Expo web app (runtime config → /env.js on start) ---------------------
@@ -74,15 +75,13 @@ services:
     container_name: beerbot-web
     restart: unless-stopped
     env_file:
-      - path: /run/secrets/beerbot.env
-        required: false
       - path: ./.env
         required: false
     environment:
       EXPO_PUBLIC_API_URL: https://api.beerbot.home.kki.berlin
       EXPO_PUBLIC_API_AUDIENCE: https://api.beerbot.app
       EXPO_PUBLIC_LOGTO_ENDPOINT: https://auth.beerbot.home.kki.berlin
-      # EXPO_PUBLIC_LOGTO_WEB_APP_ID comes from /run/secrets/beerbot.env
+      # EXPO_PUBLIC_LOGTO_WEB_APP_ID comes from ./.env
       # (written after the first `provision` run; restart this service after).
     networks: [proxy_net]
 
@@ -92,15 +91,13 @@ services:
     container_name: beerbot-admin-web
     restart: unless-stopped
     env_file:
-      - path: /run/secrets/beerbot.env
-        required: false
       - path: ./.env
         required: false
     environment:
       VITE_LOGTO_ENDPOINT: https://auth.beerbot.home.kki.berlin
       VITE_ADMIN_API_RESOURCE: https://admin.beerbot.app
       VITE_ADMIN_API_URL: https://admin.beerbot.home.kki.berlin/api
-      # VITE_LOGTO_APP_ID comes from /run/secrets/beerbot.env (after provision).
+      # VITE_LOGTO_APP_ID comes from ./.env (after provision).
     networks: [proxy_net]
 
   # --- Landing page ---------------------------------------------------------
@@ -114,22 +111,21 @@ services:
   beerbot-db:
     image: postgres:14.1-alpine
     container_name: beerbot-db
-    user: postgres
     restart: unless-stopped
     env_file:
-      - path: /run/secrets/beerbot.env
+      - path: ./.env
         required: false
     environment:
       POSTGRES_USER: beerbot
       POSTGRES_MULTIPLE_DATABASES: beerbot,logto
-      # POSTGRES_PASSWORD comes from /run/secrets/beerbot.env.
+      # POSTGRES_PASSWORD comes from ./.env.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U beerbot -d beerbot"]
       interval: 5s
       timeout: 5s
       retries: 20
     volumes:
-      - /persist/appdata/beerbot/db:/var/lib/postgresql/data
+      - db:/var/lib/postgresql/data
       - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
     networks: [proxy_net]
 
@@ -140,13 +136,13 @@ services:
     restart: unless-stopped
     depends_on:
       beerbot-db: { condition: service_healthy }
-    # DB_URL is assembled here from the POSTGRES_* parts (delivered via the
-    # env_file secret), so the password lives only in POSTGRES_PASSWORD — not a
-    # second DB_URL literal. `$$VAR` reads the container env (this stack uses no
-    # compose interpolation on purpose).
+    # DB_URL is assembled here from the POSTGRES_* parts (delivered via ./.env),
+    # so the password lives only in POSTGRES_PASSWORD — not a second DB_URL
+    # literal. `$$VAR` reads the container env (this stack uses no compose
+    # interpolation on purpose).
     entrypoint: ["sh", "-c", "export DB_URL=\"postgresql://$$POSTGRES_USER:$$POSTGRES_PASSWORD@beerbot-db:5432/logto\" && npm run cli db seed -- --swe && npm start"]
     env_file:
-      - path: /run/secrets/beerbot.env
+      - path: ./.env
         required: false
     environment:
       TRUST_PROXY_HEADER: "1"
@@ -161,10 +157,10 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     env_file:
-      - path: /run/secrets/beerbot.env
+      - path: ./.env
         required: false
     volumes:
-      - /persist/appdata/beerbot/minio:/data
+      - minio:/data
     networks: [proxy_net]
 
   beerbot-minio-init:
@@ -173,7 +169,7 @@ services:
     depends_on:
       beerbot-minio: { condition: service_started }
     env_file:
-      - path: /run/secrets/beerbot.env
+      - path: ./.env
         required: false
     # $$VAR (escaped) → read from the CONTAINER env (env_file), not compose interpolation.
     entrypoint: >
@@ -197,13 +193,13 @@ services:
       beerbot-db: { condition: service_healthy }
       beerbot-logto: { condition: service_started }
     env_file:
-      - path: /run/secrets/beerbot.env
+      - path: ./.env
         required: false
     environment:
       # Talk to Logto internally (no dependence on public DNS/TLS at deploy time).
       LOGTO_ENDPOINT: http://beerbot-logto:3001
       LOGTO_ADMIN_ENDPOINT: http://beerbot-logto:3002
-      # POSTGRES_* come from the secret; the Logto M2M secret is resolved live
+      # POSTGRES_* come from ./.env; the Logto M2M secret is resolved live
       # from the co-located logto DB (nothing to configure).
     networks: [proxy_net]
 
@@ -211,7 +207,8 @@ services:
   # Runs `sync --watch 900` continuously (the image's default CMD): every ~15 min
   # it opens the in-service SSH tunnel to old prod and syncs identity → domain →
   # pictures → recompute into the new DB. Starts only after provision succeeds.
-  # The old-prod SSH key is delivered by sops-nix at /run/secrets/beerbot-old-vps.
+  # The old-prod SSH key is delivered by sops-nix at /run/secrets/beerbot-old-vps
+  # (root-owned, for OpenSSH's ownership check — see the header note).
   beerbot-migrator:
     image: ghcr.io/beerbotapp/beerbot/migrator:latest
     container_name: beerbot-migrator
@@ -221,7 +218,7 @@ services:
       beerbot-db: { condition: service_healthy }
       beerbot-minio: { condition: service_started }
     env_file:
-      - path: /run/secrets/beerbot.env
+      - path: ./.env
         required: false
     environment:
       LOGTO_ENDPOINT: http://beerbot-logto:3001
@@ -233,12 +230,16 @@ services:
       MIGRATOR_TUNNEL_KEY_FILE: /keys/old-vps
       # POSTGRES_* (new DB), BEERBOT_LEGACY_CONNECTION (old DB; the auth one is
       # derived from it), MIGRATOR_TUNNEL_TARGET, MINIO_ROOT_USER/PASSWORD come
-      # from /run/secrets/beerbot.env. (The Logto M2M secret is resolved live from
-      # the co-located logto DB — nothing to configure.)
+      # from ./.env. (The Logto M2M secret is resolved live from the co-located
+      # logto DB — nothing to configure.)
     volumes:
       # sops-nix delivers the old-prod SSH private key here (read-only).
       - /run/secrets/beerbot-old-vps:/keys/old-vps:ro
     networks: [proxy_net]
+
+volumes:
+  db:
+  minio:
 
 networks:
   proxy_net:
