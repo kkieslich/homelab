@@ -53,6 +53,11 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/music-assistant"
 file_paths = ["docker-compose.yml"]
+# Auto-deploy on new images (your own fork). GlobalAutoUpdate (driven by the
+# host's komodo-autoupdate systemd timer) pulls ghcr.io/kkieslich/music-assistant
+# and redeploys when the digest changes.
+poll_for_updates = true
+auto_update = true
 
 [[stack]]
 name = "ledfx"
