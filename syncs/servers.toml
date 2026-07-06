@@ -11,7 +11,7 @@ name = "um870"
 description = "Minisforum UM870 (x86_64 NixOS, livingroom-server)"
 tags = ["prod"]
 [server.config]
-address = "https://192.168.1.124:8120"
+address = "http://host.docker.internal:8120"
 enabled = true
 # region / stats alerting thresholds can be added here later.
 
