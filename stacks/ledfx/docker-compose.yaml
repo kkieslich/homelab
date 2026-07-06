@@ -2,7 +2,7 @@ name: "ledfx"
 
 services:
   ledfx:
-    image: ghcr.io/ledfx/ledfx:latest
+    image: ghcr.io/ledfx/ledfx:edge
     container_name: ledfx
     network_mode: host
     restart: always
