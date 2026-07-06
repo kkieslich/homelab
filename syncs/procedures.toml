@@ -1,0 +1,21 @@
+# Komodo procedures, applied by the homelab Resource Sync.
+#
+# Declaring the seeded "Global Auto Update" here makes its 15-minute cadence
+# version-controlled. It runs the GlobalAutoUpdate job, which pulls the latest
+# image for every stack flagged poll_for_updates/auto_update (currently beerbot
+# and music-assistant) and redeploys the ones whose digest changed — so a CI
+# image push rolls out within ~15 min. Without this file a rebuilt Komodo would
+# revert to the seeded default (daily at 03:00).
+[[procedure]]
+name = "Global Auto Update"
+description = "Pulls and auto updates Stacks and Deployments using 'poll_for_updates' or 'auto_update'."
+tags = ["system"]
+config.schedule = "every 15 minutes"
+config.schedule_enabled = true
+
+[[procedure.config.stage]]
+name = "Stage 1"
+enabled = true
+executions = [
+  { execution.type = "GlobalAutoUpdate", execution.params.skip_auto_update = false, enabled = true },
+]
