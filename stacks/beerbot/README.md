@@ -9,8 +9,8 @@ not an empty one.
 ## Services
 
 `beerbot-api`, `beerbot-admin-api`, `beerbot-web`, `beerbot-admin-web`,
-`beerbot-landing`, `beerbot-db` (Postgres: `beerbot` + `logto`), `beerbot-logto`,
-`beerbot-minio` (+init), `beerbot-provision` (one-shot: schema→head + Logto
+`beerbot-landing`, `beerbot-db` (Postgres: `beerbot` + `keycloak`), `beerbot-keycloak`,
+`beerbot-minio` (+init), `beerbot-provision` (one-shot: schema→head + Keycloak
 bootstrap on each deploy), `beerbot-migrator` (`sync --watch` from old prod).
 
 ## Routing (Caddy, over proxy_net — no host ports)
@@ -19,7 +19,7 @@ bootstrap on each deploy), `beerbot-migrator` (`sync --watch` from old prod).
 |---|---|
 | `beerbot.home.kki.berlin` | `beerbot-web:80` |
 | `api.beerbot.home.kki.berlin` | `beerbot-api:80` |
-| `auth.beerbot.home.kki.berlin` | `beerbot-logto:3001` |
+| `auth.beerbot.home.kki.berlin` | `beerbot-keycloak:8080` |
 | `admin.beerbot.home.kki.berlin` | `beerbot-admin-web:80` (+ `/api` → `beerbot-admin-api:80`, prefix stripped) |
 | `cdn.beerbot.home.kki.berlin` | `beerbot-minio:9000` |
 | `www.beerbot.home.kki.berlin` | `beerbot-landing:80` |
@@ -41,15 +41,12 @@ bootstrap on each deploy), `beerbot-migrator` (`sync --watch` from old prod).
 ## First deploy
 
 Komodo brings the stack up: the fresh `beerbot-db` volume runs `init-databases.sh`
-(creates the `beerbot` + `logto` DBs), Logto seeds itself, `beerbot-provision`
-migrates the schema + bootstraps Logto, then `beerbot-migrator` starts
+(creates the `beerbot` + `keycloak` DBs), Keycloak starts, `beerbot-provision`
+migrates the schema + imports/ensures the BeerBot realm, then `beerbot-migrator` starts
 forward-syncing live data from old prod every ~15 min.
 
-**After the first provision**, read the Logto app IDs it created (Logto admin
-console via an SSH tunnel to `beerbot-logto:3002`, or the provision logs), put
-`EXPO_PUBLIC_LOGTO_WEB_APP_ID` + `VITE_LOGTO_APP_ID` into the sops secret, and
-restart `beerbot-web` + `beerbot-admin-web` (they read these at runtime — no
-rebuild).
+Keycloak client ids are deterministic (`beerbot-web`, `beerbot-mobile`,
+`beerbot-admin`), so there is no post-provision app-id copy step.
 
 Grant yourself admin:
 

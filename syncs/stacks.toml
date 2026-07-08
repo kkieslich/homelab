@@ -118,7 +118,7 @@ registry_account = "kkieslich"
 # Auto-deploy on new images: Komodo polls GHCR for a new digest on the :latest
 # app images (using the registry account above) and redeploys when one appears —
 # so a CI push of a new image rolls out on its own, no webhook/CI hook needed.
-# Only the services whose image changed are updated (pinned postgres/logto/minio
+# Only the services whose image changed are updated (pinned postgres/keycloak/minio
 # are untouched). Poll cadence = Core's default KOMODO_POLL_RATE.
 poll_for_updates = true
 auto_update = true

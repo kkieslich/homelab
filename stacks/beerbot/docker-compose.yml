@@ -45,10 +45,8 @@ services:
         required: false
     environment:
       <<: *minio-env
-      # Bare Logto endpoint (Startup.cs appends /oidc). Audience = the Logto API
-      # resource indicator (a fixed logical id, NOT a reachable host).
-      API_AUTH_ISSUER: https://auth.beerbot.home.kki.berlin
-      API_AUDIENCE: https://api.beerbot.app
+      AUTH_ISSUER: https://auth.beerbot.home.kki.berlin/realms/beerbot
+      API_AUDIENCE: beerbot-api
       APP_WEB_ORIGINS: https://beerbot.home.kki.berlin
       MINIO_PRESIGNED_URL_TTL_HOURS: "24"
       # Push notifications OFF: this test instance forward-syncs REAL device tokens
@@ -71,8 +69,8 @@ services:
         required: false
     environment:
       <<: *minio-env
-      API_AUTH_ISSUER: https://auth.beerbot.home.kki.berlin
-      ADMIN_API_AUDIENCE: https://admin.beerbot.app
+      AUTH_ISSUER: https://auth.beerbot.home.kki.berlin/realms/beerbot
+      ADMIN_API_AUDIENCE: beerbot-admin-api
       ADMIN_WEB_ORIGINS: https://admin.beerbot.home.kki.berlin
       # POSTGRES_* (DB connection is built from them) come from ./.env.
     networks: [proxy_net]
@@ -87,10 +85,10 @@ services:
         required: false
     environment:
       EXPO_PUBLIC_API_URL: https://api.beerbot.home.kki.berlin
-      EXPO_PUBLIC_API_AUDIENCE: https://api.beerbot.app
-      EXPO_PUBLIC_LOGTO_ENDPOINT: https://auth.beerbot.home.kki.berlin
-      # EXPO_PUBLIC_LOGTO_WEB_APP_ID comes from ./.env
-      # (written after the first `provision` run; restart this service after).
+      EXPO_PUBLIC_API_AUDIENCE: beerbot-api
+      EXPO_PUBLIC_AUTH_ISSUER: https://auth.beerbot.home.kki.berlin/realms/beerbot
+      EXPO_PUBLIC_AUTH_WEB_CLIENT_ID: beerbot-web
+      EXPO_PUBLIC_AUTH_MOBILE_CLIENT_ID: beerbot-mobile
     networks: [proxy_net]
 
   # --- Admin web (Vite SPA; runtime config → /config.js on start) -----------
@@ -102,10 +100,10 @@ services:
       - path: ./.env
         required: false
     environment:
-      VITE_LOGTO_ENDPOINT: https://auth.beerbot.home.kki.berlin
-      VITE_ADMIN_API_RESOURCE: https://admin.beerbot.app
+      VITE_AUTH_ISSUER: https://auth.beerbot.home.kki.berlin/realms/beerbot
+      VITE_AUTH_CLIENT_ID: beerbot-admin
+      VITE_ADMIN_API_RESOURCE: beerbot-admin-api
       VITE_ADMIN_API_URL: https://admin.beerbot.home.kki.berlin/api
-      # VITE_LOGTO_APP_ID comes from ./.env (after provision).
     networks: [proxy_net]
 
   # --- Landing page ---------------------------------------------------------
@@ -115,7 +113,7 @@ services:
     restart: unless-stopped
     networks: [proxy_net]
 
-  # --- Postgres (beerbot + logto DBs; empty on first start) -----------------
+  # --- Postgres (beerbot + keycloak DBs; empty on first start) ---------------
   beerbot-db:
     image: postgres:14.1-alpine
     container_name: beerbot-db
@@ -125,7 +123,7 @@ services:
         required: false
     environment:
       POSTGRES_USER: beerbot
-      POSTGRES_MULTIPLE_DATABASES: beerbot,logto
+      POSTGRES_MULTIPLE_DATABASES: beerbot,keycloak
       # POSTGRES_PASSWORD comes from ./.env.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U beerbot -d beerbot"]
@@ -137,28 +135,30 @@ services:
       - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
     networks: [proxy_net]
 
-  # --- Logto (self-hosted OIDC; seeds itself on first run) ------------------
-  beerbot-logto:
-    image: svhd/logto:1.40.1
-    container_name: beerbot-logto
+  # --- Keycloak (self-hosted OIDC) ------------------------------------------
+  beerbot-keycloak:
+    image: quay.io/keycloak/keycloak:26.6.4
+    container_name: beerbot-keycloak
     restart: unless-stopped
     depends_on:
       beerbot-db: { condition: service_healthy }
-    # DB_URL is assembled here from the POSTGRES_* parts (delivered via ./.env),
-    # so the password lives only in POSTGRES_PASSWORD — not a second DB_URL
-    # literal. `$$VAR` reads the container env (this stack uses no compose
-    # interpolation on purpose).
-    entrypoint: ["sh", "-c", "export DB_URL=\"postgresql://$$POSTGRES_USER:$$POSTGRES_PASSWORD@beerbot-db:5432/logto\" && npm run cli db seed -- --swe && npm start"]
+    entrypoint:
+      - sh
+      - -c
+      - |
+        export KC_DB_PASSWORD="$$POSTGRES_PASSWORD"
+        export KC_BOOTSTRAP_ADMIN_USERNAME="$$KEYCLOAK_ADMIN_USERNAME"
+        export KC_BOOTSTRAP_ADMIN_PASSWORD="$$KEYCLOAK_ADMIN_PASSWORD"
+        exec /opt/keycloak/bin/kc.sh start --http-enabled=true --http-port=8080 --proxy-headers=xforwarded
     env_file:
       - path: ./.env
         required: false
     environment:
-      TRUST_PROXY_HEADER: "1"
-      ENDPOINT: https://auth.beerbot.home.kki.berlin
-      # Public admin-console URL (Caddy → beerbot-logto:3002). The console SPA uses
-      # this in the browser, and provision/migrator call the same URL so their
-      # request Host matches — Logto's admin OIDC requires Host == ADMIN_ENDPOINT.
-      ADMIN_ENDPOINT: https://logto-admin.beerbot.home.kki.berlin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://beerbot-db:5432/keycloak
+      KC_DB_USERNAME: beerbot
+      KC_HOSTNAME: https://auth.beerbot.home.kki.berlin
+      KC_HEALTH_ENABLED: "true"
     networks: [proxy_net]
 
   # --- MinIO (object storage for pictures) ----------------------------------
@@ -198,7 +198,7 @@ services:
     restart: "no"
     networks: [proxy_net]
 
-  # --- provision (one-shot): schema → head + Logto bootstrap, each deploy ----
+  # --- provision (one-shot): schema → head + Keycloak realm, each deploy -----
   beerbot-provision:
     image: ghcr.io/beerbotapp/beerbot/migrator:latest
     container_name: beerbot-provision
@@ -206,17 +206,16 @@ services:
     restart: on-failure:10
     depends_on:
       beerbot-db: { condition: service_healthy }
-      beerbot-logto: { condition: service_started }
+      beerbot-keycloak: { condition: service_started }
     env_file:
       - path: ./.env
         required: false
     environment:
       <<: *minio-env
-      # Talk to Logto internally (no dependence on public DNS/TLS at deploy time).
-      LOGTO_ENDPOINT: http://beerbot-logto:3001
-      LOGTO_ADMIN_ENDPOINT: https://logto-admin.beerbot.home.kki.berlin
-      # POSTGRES_* come from ./.env; the Logto M2M secret is resolved live
-      # from the co-located logto DB (nothing to configure).
+      AUTH_ISSUER: https://auth.beerbot.home.kki.berlin/realms/beerbot
+      KEYCLOAK_BASE_URL: http://beerbot-keycloak:8080
+      KEYCLOAK_REALM: beerbot
+      # POSTGRES_*, KEYCLOAK_ADMIN_* come from ./.env.
     networks: [proxy_net]
 
   # --- migrator (parallel-run): forward-sync LIVE data from old prod ---------
@@ -238,14 +237,14 @@ services:
         required: false
     environment:
       <<: *minio-env
-      LOGTO_ENDPOINT: http://beerbot-logto:3001
-      LOGTO_ADMIN_ENDPOINT: https://logto-admin.beerbot.home.kki.berlin
+      AUTH_ISSUER: https://auth.beerbot.home.kki.berlin/realms/beerbot
+      KEYCLOAK_BASE_URL: http://beerbot-keycloak:8080
+      KEYCLOAK_REALM: beerbot
       # In-container path of the mounted key (matches the volume below).
       MIGRATOR_TUNNEL_KEY_FILE: /keys/old-vps
       # POSTGRES_* (new DB), BEERBOT_LEGACY_CONNECTION (old DB; the auth one is
-      # derived from it), MIGRATOR_TUNNEL_TARGET, MINIO_ROOT_USER/PASSWORD come
-      # from ./.env. (The Logto M2M secret is resolved live from the co-located
-      # logto DB — nothing to configure.)
+      # derived from it), MIGRATOR_TUNNEL_TARGET, KEYCLOAK_ADMIN_*,
+      # MINIO_ROOT_USER/PASSWORD come from ./.env.
     volumes:
       # sops-nix delivers the old-prod SSH private key here (read-only).
       - /run/secrets/beerbot-old-vps:/keys/old-vps:ro
