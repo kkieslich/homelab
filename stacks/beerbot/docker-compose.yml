@@ -137,7 +137,7 @@ services:
 
   # --- Keycloak (self-hosted OIDC) ------------------------------------------
   beerbot-keycloak:
-    image: quay.io/keycloak/keycloak:26.6.4
+    image: ghcr.io/beerbotapp/beerbot/keycloak:latest
     container_name: beerbot-keycloak
     restart: unless-stopped
     depends_on:
