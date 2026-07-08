@@ -135,13 +135,42 @@ services:
       - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
     networks: [proxy_net]
 
+  # Re-runs on every deploy and creates missing databases even when the Postgres
+  # volume already existed before POSTGRES_MULTIPLE_DATABASES was added. The
+  # official entrypoint init scripts only run on a brand-new PGDATA directory.
+  beerbot-db-init:
+    image: postgres:14.1-alpine
+    container_name: beerbot-db-init
+    restart: "no"
+    depends_on:
+      beerbot-db: { condition: service_healthy }
+    env_file:
+      - path: ./.env
+        required: false
+    environment:
+      POSTGRES_USER: beerbot
+      POSTGRES_MULTIPLE_DATABASES: beerbot,keycloak
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        export PGPASSWORD="$$POSTGRES_PASSWORD"
+        for db in $$(echo "$$POSTGRES_MULTIPLE_DATABASES" | tr ',' ' '); do
+          echo "ensuring database: $$db"
+          psql -h beerbot-db -U "$$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 <<-EOSQL
+            SELECT 'CREATE DATABASE $$db'
+            WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$$db')\gexec
+        EOSQL
+        done
+    networks: [proxy_net]
+
   # --- Keycloak (self-hosted OIDC) ------------------------------------------
   beerbot-keycloak:
     image: ghcr.io/beerbotapp/beerbot/keycloak:latest
     container_name: beerbot-keycloak
     restart: unless-stopped
     depends_on:
-      beerbot-db: { condition: service_healthy }
+      beerbot-db-init: { condition: service_completed_successfully }
     entrypoint:
       - sh
       - -c
@@ -159,6 +188,44 @@ services:
       KC_DB_USERNAME: beerbot
       KC_HOSTNAME: https://auth.beerbot.home.kki.berlin
       KC_HEALTH_ENABLED: "true"
+    networks: [proxy_net]
+
+  # --- Keycloak realm config (idempotent; safe every deploy) -----------------
+  beerbot-keycloak-config:
+    image: adorsys/keycloak-config-cli:6.5.1-26.5.5
+    container_name: beerbot-keycloak-config
+    restart: on-failure:5
+    depends_on:
+      beerbot-keycloak: { condition: service_started }
+    env_file:
+      - path: ./.env
+        required: false
+    environment:
+      KEYCLOAK_URL: http://beerbot-keycloak:8080
+      KEYCLOAK_AVAILABILITYCHECK_ENABLED: "true"
+      KEYCLOAK_AVAILABILITYCHECK_TIMEOUT: 300s
+      IMPORT_FILES_LOCATIONS: /tmp/keycloak-config/beerbot-realm.json
+      IMPORT_VARSUBSTITUTION_ENABLED: "true"
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        mkdir -p /tmp/keycloak-config
+        sed 's#/config/apple.p8#/tmp/keycloak-config/apple.p8#g' \
+          /config-src/beerbot-realm.json > /tmp/keycloak-config/beerbot-realm.json
+        if [ -n "$${APPLE_OAUTH_PRIVATE_KEY_B64:-}" ]; then
+          printf '%s' "$$APPLE_OAUTH_PRIVATE_KEY_B64" | base64 -d > /tmp/keycloak-config/apple.p8
+        elif [ -n "$${APPLE_OAUTH_PRIVATE_KEY:-}" ]; then
+          printf '%b' "$$APPLE_OAUTH_PRIVATE_KEY" > /tmp/keycloak-config/apple.p8
+        else
+          echo "missing APPLE_OAUTH_PRIVATE_KEY_B64 or APPLE_OAUTH_PRIVATE_KEY" >&2
+          exit 1
+        fi
+        export KEYCLOAK_USER="$$KEYCLOAK_ADMIN_USERNAME"
+        export KEYCLOAK_PASSWORD="$$KEYCLOAK_ADMIN_PASSWORD"
+        exec java -jar /app/keycloak-config-cli.jar
+    volumes:
+      - ./scripts/keycloak:/config-src:ro
     networks: [proxy_net]
 
   # --- MinIO (object storage for pictures) ----------------------------------
@@ -206,7 +273,7 @@ services:
     restart: on-failure:10
     depends_on:
       beerbot-db: { condition: service_healthy }
-      beerbot-keycloak: { condition: service_started }
+      beerbot-keycloak-config: { condition: service_completed_successfully }
     env_file:
       - path: ./.env
         required: false
@@ -232,6 +299,7 @@ services:
       beerbot-provision: { condition: service_completed_successfully }
       beerbot-db: { condition: service_healthy }
       beerbot-minio: { condition: service_started }
+      beerbot-keycloak-config: { condition: service_completed_successfully }
     env_file:
       - path: ./.env
         required: false
