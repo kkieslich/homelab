@@ -29,7 +29,7 @@ tags = ["prod", "um870", "actual", "manual"]
 name = "Run UmweltBank import"
 enabled = true
 executions = [
-  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "fints_sync_umwelt", execution.params.no_tty = true, enabled = true },
+  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "fints_sync_umwelt", enabled = true },
 ]
 
 [[procedure.config.stage]]

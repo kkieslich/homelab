@@ -50,7 +50,7 @@ services:
   # fetches once, imports into Actual, writes /state/fints-status.json, then
   # exits. It is profile-gated so normal deploys never contact UmweltBank.
   #
-  # Komodo action: "Actual - Sync UmweltBank now"
+  # Komodo procedure: "Actual - Sync UmweltBank now"
   # CLI fallback:
   #   docker compose --profile manual run --rm --build fints_sync_umwelt
   fints_sync_umwelt:
