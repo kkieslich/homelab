@@ -19,3 +19,22 @@ enabled = true
 executions = [
   { execution.type = "GlobalAutoUpdate", execution.params.skip_auto_update = false, enabled = true },
 ]
+
+[[procedure]]
+name = "Actual - Sync UmweltBank now"
+description = "Runs the one-shot UmweltBank FinTS fetch/import job. This is intentionally manual to avoid repeated bank logins/SCA prompts."
+tags = ["prod", "um870", "actual", "manual"]
+
+[[procedure.config.stage]]
+name = "Run UmweltBank import"
+enabled = true
+executions = [
+  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "fints_sync_umwelt", execution.params.no_tty = true, enabled = true },
+]
+
+[[procedure.config.stage]]
+name = "Refresh Actual SQLite snapshot"
+enabled = true
+executions = [
+  { execution.type = "RestartStack", execution.params.stack = "actual", execution.params.services = ["actual_db_sync"], enabled = true },
+]

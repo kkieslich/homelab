@@ -21,6 +21,7 @@ stacks/     one directory per stack (compose file + build contexts/config)
 syncs/      Komodo GitOps resource definitions (TOML)
   servers.toml      managed hosts (Periphery)
   stacks.toml       one [[stack]] per stack, pinned to a server
+  procedures.toml   scheduled Komodo procedures
   variables.toml    non-secret shared variables
 ```
 
@@ -39,6 +40,6 @@ syncs/      Komodo GitOps resource definitions (TOML)
 ## GitOps
 
 A Komodo **Resource Sync** points at this repo with
-`resource_path = ["syncs/servers.toml", "syncs/stacks.toml", "syncs/variables.toml"]`.
+`resource_path = ["syncs/stacks.toml", "syncs/variables.toml", "syncs/procedures.toml"]`.
 Push to `main` → Komodo reconciles (diff shown in the UI; managed mode can
 auto-apply).
