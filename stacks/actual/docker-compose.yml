@@ -1,19 +1,9 @@
 name: "actual"
 
 # Top-level extension key (recognised by Docker Compose as a non-service).
-# Holds the common config that all three fints-daemon services share — they
-# only differ in --bank and --heartbeat-interval. NOT a service itself: the
-# `x-` prefix tells compose to skip it during `up`. (Putting it under
-# `services:` makes compose start it as a real container, which silently
-# spams `--help` and exits.)
-x-fints-daemon-base: &fints-daemon-base
-  # DISABLED: the fints daemons are currently broken, so they are gated behind
-  # the "fints" compose profile and do NOT start by default (homeserver-compose
-  # runs `up` without `--profile fints`). actual_server + actual_db_sync still
-  # run and serve the migrated budget data; db_sync reads the last-known
-  # fints-state snapshot. Re-enable by fixing the bridge and removing this
-  # profile (or running `docker compose --profile fints up -d`).
-  profiles: ["fints"]
+# Holds the common config for FinTS jobs. NOT a service itself: the `x-` prefix
+# tells compose to skip it during `up`.
+x-fints-base: &fints-base
   build:
     context: ./fints-actual-bridge
   restart: unless-stopped
@@ -25,6 +15,9 @@ x-fints-daemon-base: &fints-daemon-base
     # bin/import.mjs reads ACTUAL_SERVER_URL; route through the in-network
     # service name to avoid round-tripping through Caddy.
     ACTUAL_SERVER_URL: http://actual_server:5006
+    # fints-fetch, fints-daemon, and bin/import.mjs all persist status/state
+    # here. actual_db_sync mounts the same named volume at /fints.
+    STATE_DIR: /state
   volumes:
     # banks.toml is decrypted from banks.toml.enc by pre_deploy (0644, no owner
     # strictness — read-only config).
@@ -53,43 +46,28 @@ services:
       - proxy_net
 
 
-  # UmweltBank: enforces a 5-min idle timeout AND requires SCA on every login.
-  # The daemon holds the session open with 3-min heartbeats so we only have to
-  # approve SCA once per container lifetime (typically: at startup, network
-  # drops, or the 90-day cycle).
+  # UmweltBank: manual one-shot import. It starts, asks for/uses SCA as needed,
+  # fetches once, imports into Actual, writes /state/fints-status.json, then
+  # exits. It is profile-gated so normal deploys never contact UmweltBank.
   #
-  # First start (and every restart): the bank requires interactive SCA. Watch
-  # the container logs and approve the push notification in your banking app:
-  #   docker compose logs -f fints_daemon_umwelt
-  fints_daemon_umwelt:
-    <<: *fints-daemon-base
-    container_name: fints_daemon_umwelt
+  # Komodo action: "Actual - Sync UmweltBank now"
+  # CLI fallback:
+  #   docker compose --profile manual run --rm --build fints_sync_umwelt
+  fints_sync_umwelt:
+    <<: *fints-base
+    profiles: ["manual"]
+    container_name: fints_sync_umwelt
+    restart: "no"
     command:
-      - fints-daemon
-      - --bank=umwelt
-      - --out=/state/umwelt-fetch.json
-      - --fetch-interval=3600
-      - --heartbeat-interval=180
-      - --days=30
-      - --import-after
+      - sh
+      - -ec
+      - |
+        fints-fetch --bank umwelt --days 30 --out /state/umwelt-fetch.json
+        node bin/import.mjs --bank umwelt --in /state/umwelt-fetch.json
 
-  # Triodos: no SCA on read, no aggressive idle timeout. The daemon is overkill
-  # but we run it for consistency — same image, longer heartbeat (10 min).
-  fints_daemon_triodos:
-    <<: *fints-daemon-base
-    container_name: fints_daemon_triodos
-    command:
-      - fints-daemon
-      - --bank=triodos
-      - --out=/state/triodos-fetch.json
-      - --fetch-interval=3600
-      - --heartbeat-interval=180
-      - --days=30
-      - --import-after
-
-  # Baader (finanzen.net zero): no SCA at all on read. Same setup as Triodos.
+  # Baader (finanzen.net zero): no SCA on read, so keep it running permanently.
   fints_daemon_baader:
-    <<: *fints-daemon-base
+    <<: *fints-base
     container_name: fints_daemon_baader
     command:
       - fints-daemon

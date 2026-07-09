@@ -67,7 +67,7 @@ Grafana lives in [`stacks/monitoring/`](../../stacks/monitoring/) and reads the 
 | `payees` | id, name, transfer_account_id |
 | `transactions` | full denormalised row including category_name, group_name, payee_name, account_name. Plus `month` (`'YYYY-MM'`), `year`, `ymd_unix` for cheap GROUP BY. |
 | `subscriptions` | output of the cli detector — payee, cadence, median, annualized, is_active, days_since_last |
-| `pipeline_status` | one row per import source: `umwelt`, `triodos`, `fnz` (from `fints-status.json`), and `sync` (this container's own heartbeat) |
+| `pipeline_status` | one row per import source: `umwelt`, `fnz` (from `fints-status.json`), and `sync` (this container's own heartbeat) |
 | `holdings` | current depot positions from `holdings.json` — ISIN, name, pieces, market_value, total_value, valuation_date |
 | `holdings_history` | append-only — one row per holding per snapshot for portfolio-value-over-time charts |
 
@@ -162,7 +162,7 @@ One-time setup:
 4. Add `BANKS_FNZ_LOGIN` (your Baader Online-Banking name, **not** your finanzen.net zero web login) and `BANKS_FNZ_PIN` to `stacks/actual/.env`.
 5. If the first connection fails with a Product-ID error, register a free FinTS Product-ID at <https://www.hbci-zka.de/register/prod_register.htm> and add `FINTS_PRODUCT_ID=...` to `.env`.
 
-Then it works exactly like Umwelt/Triodos:
+Then fetch and import the Baader data:
 ```sh
 cd fints-actual-bridge
 source .venv/bin/activate

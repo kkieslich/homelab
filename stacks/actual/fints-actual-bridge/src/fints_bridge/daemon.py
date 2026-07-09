@@ -15,8 +15,8 @@ How it works:
        systemd, restarting the unit prompts you for fresh SCA.
 
 This trades cron-style simplicity for a single SCA approval per session-life.
-For Triodos/Baader (which don't need SCA on read) the regular `fints-fetch`
-CLI is still the right tool — no daemon needed.
+For banks that don't need SCA on read, the regular `fints-fetch` CLI is still
+the right tool — no daemon needed.
 
 Usage:
     fints-daemon --bank umwelt --out /tmp/umwelt.json

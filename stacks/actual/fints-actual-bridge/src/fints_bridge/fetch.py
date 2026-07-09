@@ -19,7 +19,7 @@ Output shape (stdout or --out):
 
 Usage:
     fints-fetch --bank umwelt --days 60
-    fints-fetch --bank triodos --iban DE12... --out /tmp/triodos.json
+    fints-fetch --bank fnz --days 30 --out /tmp/fnz.json
 """
 
 from __future__ import annotations

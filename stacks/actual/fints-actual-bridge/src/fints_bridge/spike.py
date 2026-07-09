@@ -7,7 +7,6 @@ for production import.
 
 Usage:
     fints-spike --bank umwelt
-    fints-spike --bank triodos
 """
 
 from __future__ import annotations

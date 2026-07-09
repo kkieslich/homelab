@@ -32,18 +32,6 @@ pin_env = "BANKS_UMWELT_PIN"
   actual_account_id = "REPLACE-with-credit-card-account-uuid"
   display_name = "UmweltBank Kreditkarte"
 
-[banks.triodos]
-display_name = "Triodos Bank Deutschland"
-blz = "50031000"
-fints_url = "https://fints2.atruvia.de/cgi-bin/hbciservlet"
-login_env = "BANKS_TRIODOS_LOGIN"
-pin_env = "BANKS_TRIODOS_PIN"
-
-  # [[banks.triodos.accounts]]
-  # iban = "DE..."
-  # actual_account_id = "..."
-  # display_name = "Triodos Girokonto"
-
 # finanzen.net zero is a tied agent of Baader Bank AG. Both the cash account
 # (Verrechnungskonto) and the securities account (Depot) live at Baader and are
 # accessible via Baader's FinTS endpoint. The depot needs `type = "depot"` so

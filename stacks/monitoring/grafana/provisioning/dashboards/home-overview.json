@@ -94,7 +94,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "Is Cloudflare or Google DNS reachable from the Pi? The all-up ground truth.",
+      "description": "Is Cloudflare or Google DNS reachable from the home server? The all-up ground truth.",
       "links": [
         {
           "title": "Connection quality",
@@ -431,7 +431,7 @@
     {
       "id": 6,
       "type": "stat",
-      "title": "Pi Temp",
+      "title": "Host Temp",
       "gridPos": {
         "x": 20,
         "y": 0,
@@ -448,8 +448,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(rpi_temperature_f - 32) / 1.8",
-          "legendFormat": "\u00b0C",
+          "expr": "max(node_hwmon_temp_celsius{job=\"host_node\",chip!~\"thermal_.*\"})",
+          "legendFormat": "max",
           "refId": "A",
           "instant": false,
           "format": "time_series"
@@ -493,10 +493,10 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "Raspberry Pi SoC temperature. >75\u00b0C = throttling imminent.",
+      "description": "Hottest hardware sensor exported by node_exporter on the UM870 host.",
       "links": [
         {
-          "title": "Pi hardware",
+          "title": "UM870 hardware",
           "url": "/d/rpi-hardware",
           "targetBlank": false
         }
@@ -867,7 +867,7 @@
     {
       "id": 11,
       "type": "timeseries",
-      "title": "Pi Host \u2014 CPU / RAM / Disk",
+      "title": "UM870 Host - CPU / RAM / Disk",
       "gridPos": {
         "x": 12,
         "y": 18,
@@ -1105,7 +1105,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "Sum of CPU seconds across all containers (Pi 4 has 4 cores).",
+      "description": "Sum of CPU seconds across all containers on the UM870 host.",
       "links": [
         {
           "title": "Docker / cAdvisor",
@@ -1240,12 +1240,12 @@
         "graphMode": "none",
         "justifyMode": "auto"
       },
-      "description": "Count of failed systemd units on the Pi plus down Prometheus scrape targets. Should be 0."
+      "description": "Count of failed systemd units on the host plus down Prometheus scrape targets. Should be 0."
     },
     {
       "id": 16,
       "type": "stat",
-      "title": "mwan3 Score \u2014 wan",
+      "title": "mwan3 Score — wan",
       "gridPos": {
         "x": 16,
         "y": 26,
@@ -1318,7 +1318,7 @@
     {
       "id": 17,
       "type": "stat",
-      "title": "mwan3 Score \u2014 tether",
+      "title": "mwan3 Score — tether",
       "gridPos": {
         "x": 20,
         "y": 26,
@@ -1450,7 +1450,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "Last speedtest's download speed as % of the 1000 Mbps contracted line. Green \u2265 90%, orange 70\u201390%, red < 70%. Scheduled hourly by speedtest-tracker.",
+      "description": "Last speedtest's download speed as % of the 1000 Mbps contracted line. Green ≥ 90%, orange 70–90%, red < 70%. Scheduled hourly by speedtest-tracker.",
       "links": [
         {
           "title": "Connection quality",
@@ -1551,7 +1551,7 @@
             "uid": "prometheus"
           },
           "expr": "max(speedtest_tracker_download_latency_iqm_ms) - max(speedtest_tracker_ping_ms)",
-          "legendFormat": "load-\u0394",
+          "legendFormat": "load-Δ",
           "refId": "A"
         }
       ],
@@ -1592,7 +1592,7 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "description": "Extra latency (ms) seen during the download portion of the speedtest, vs idle ping. A\u2013Waveform rubric: <30ms A/B, 30-100 C, >100 D/F.",
+      "description": "Extra latency (ms) seen during the download portion of the speedtest, vs idle ping. A–Waveform rubric: <30ms A/B, 30-100 C, >100 D/F.",
       "links": [
         {
           "title": "Connection quality",

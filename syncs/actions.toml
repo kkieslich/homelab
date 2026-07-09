@@ -1,0 +1,31 @@
+# Komodo Actions applied by the homelab Resource Sync.
+
+[[action]]
+name = "Actual - Sync UmweltBank now"
+description = "Runs the one-shot UmweltBank FinTS fetch/import job. This is intentionally manual to avoid repeated bank logins/SCA prompts."
+tags = ["prod", "um870", "actual", "manual"]
+[action.config]
+file_contents = """
+const command = String.raw`
+set -euo pipefail
+cd /var/lib/komodo-periphery/stacks/actual/stacks/actual
+
+K=/var/lib/komodo-periphery/age-key.txt
+SOPS_AGE_KEY_FILE=$K sops decrypt --input-type=dotenv --output-type=dotenv enc.env > .env
+chmod 600 .env
+SOPS_AGE_KEY_FILE=$K sops decrypt --input-type=binary --output-type=binary banks.toml.enc > banks.toml
+chmod 644 banks.toml
+
+docker compose --profile manual run --rm --build fints_sync_umwelt
+docker compose restart actual_db_sync
+`;
+
+await komodo.execute_server_terminal({
+  server: "um870",
+  command,
+  init: { command: "bash" },
+}, {
+  onLine: (line) => console.log(line),
+  onFinish: (code) => console.log("Exit code:", code),
+});
+"""

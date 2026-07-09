@@ -43,10 +43,12 @@ services:
   node_exporter:
     image: prom/node-exporter:latest
     container_name: node_exporter
+    uts: host
     command:
       - --path.rootfs=/host
     volumes:
       - /:/host:ro,rslave
+      - /run/udev/data:/run/udev/data:ro
     ports:
       - "9100:9100"
     restart: unless-stopped
@@ -61,8 +63,11 @@ services:
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
+      # NixOS keeps Docker state under /persist/docker and Docker's embedded
+      # containerd socket under /run/docker/containerd.
+      - /persist/docker:/var/lib/docker:ro
+      - /run/docker/containerd:/run/docker/containerd:ro
       - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
       # Silences "Failed to get system UUID: /etc/machine-id" log spam.
       # Cadvisor reads the host's machine ID for container labels.
       - /etc/machine-id:/etc/machine-id:ro
@@ -70,6 +75,7 @@ services:
       - "8080:8080"
     command:
       - --docker_only=true
+      - --containerd=/run/docker/containerd/containerd.sock
       - --store_container_labels=false
       - --housekeeping_interval=15s
       - --disable_metrics=app,cpuLoad,disk,percpu,pressure,tcp,udp,process,hugetlb,perf_event,referenced_memory,resctrl,sched,cpuset,cpu_topology,memory_numa,advtcp,oom_event

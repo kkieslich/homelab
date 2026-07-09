@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 -- query (e.g. `strftime('%s','now') - strftime('%s', last_run_iso)`) — never
 -- store it, it'd go stale between db-sync cycles.
 CREATE TABLE IF NOT EXISTS pipeline_status (
-  source             TEXT PRIMARY KEY,            -- e.g. 'umwelt', 'triodos', 'sync'
+  source             TEXT PRIMARY KEY,            -- e.g. 'umwelt', 'fnz', 'sync'
   last_run_iso       TEXT NOT NULL,
   added              INTEGER,
   updated            INTEGER

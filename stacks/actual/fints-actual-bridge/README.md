@@ -1,12 +1,12 @@
 # fints-actual-bridge
 
-Pulls bank-account and credit-card transactions from German FinTS banks (PIN/TAN, decoupled-TAN apps like SecureGo plus) and imports them into a self-hosted [Actual Budget](https://actualbudget.com/) instance. Supports **multiple banks** via per-profile config — currently set up for **UmweltBank** and **Triodos Bank Deutschland**, both reachable via Atruvia's PIN/TAN endpoint.
+Pulls bank-account and credit-card transactions from German FinTS banks (PIN/TAN, decoupled-TAN apps like SecureGo plus) and imports them into a self-hosted [Actual Budget](https://actualbudget.com/) instance. Supports **multiple banks** via per-profile config — currently set up for UmweltBank and Baader/finanzen.net zero.
 
 ## Why this exists
 
 Credit-card transactions are **not reachable through PSD2/XS2A** with any consumer-priced aggregator (Enable Banking, GoCardless/Nordigen, Lunch Flow). None of them request the Berlin Group `cardAccounts` consent scope, so the card is invisible at the API level.
 
-The card *is* reachable via the older FinTS protocol — verified for UmweltBank via MoneyMoney's protocol log: both checking AND credit-card show up in the FinTS UPD; the card supports `HKCAZ` (camt.052 XML) but not `HKKAZ` (legacy MT940). Triodos Bank Deutschland uses the same Atruvia endpoint with the same shape, so it works through the same code path.
+The card *is* reachable via the older FinTS protocol — verified for UmweltBank via MoneyMoney's protocol log: both checking AND credit-card show up in the FinTS UPD; the card supports `HKCAZ` (camt.052 XML) but not `HKKAZ` (legacy MT940).
 
 > ⚠️ Status: fetcher works; Actual import sidecar still TODO.
 
@@ -49,7 +49,6 @@ Quick diagnostic for a single bank: opens the dialog, prompts SCA approval (one 
 
 ```sh
 fints-spike --bank umwelt
-fints-spike --bank triodos
 ```
 
 Look in the JSON output for the `accounts` list. Both checking AND credit-card accounts should show up; the card has its own IBAN.
@@ -62,8 +61,8 @@ Pulls a window of camt.052 transactions, parsed and normalized into JSON suitabl
 # Last 60 days, only the credit-card account, write to file
 fints-fetch --bank umwelt --days 60 --iban DE59760350008001107152 --out /tmp/ub-card.json
 
-# Last 30 days, all accounts at Triodos, JSON to stdout
-fints-fetch --bank triodos
+# Last 30 days, all configured UmweltBank accounts, JSON to stdout
+fints-fetch --bank umwelt
 ```
 
 Each transaction in the output:
@@ -122,7 +121,7 @@ JSON shape with `--all` (or `--bank`) is always:
   "fetched_at": "2026-05-04T...",
   "banks": [
     { "bank": { "key": "umwelt", ... }, "window": {...}, "accounts": [ ... ] },
-    { "bank": { "key": "triodos", ... }, "window": {...}, "accounts": [ ... ] }
+    { "bank": { "key": "fnz", ... }, "window": {...}, "accounts": [ ... ] }
   ]
 }
 ```
@@ -139,8 +138,8 @@ The importer:
 
 ## Findings + protocol notes (proven 2026-05-03)
 
-- UmweltBank FinTS endpoint: `https://fints2.atruvia.de/cgi-bin/hbciservlet`, BLZ `76035000`. Triodos uses the same endpoint, BLZ `50031000`.
-- Both checking + credit-card show up in the FinTS UPD on both banks (Atruvia's standard behavior).
+- UmweltBank FinTS endpoint: `https://fints2.atruvia.de/cgi-bin/hbciservlet`, BLZ `76035000`.
+- Both checking + credit-card show up in the FinTS UPD for UmweltBank (Atruvia's standard behavior).
 - Credit-card UPD allows `HKSAL` (balance) and `HKCAZ` (camt.052) but **not** `HKKAZ` (legacy MT940). So we use `client.get_transactions_xml()`, not `get_transactions()`.
 - TAN method: security_function `946` "SecureGo plus (Direktfreigabe)" — `tech_id='DECOUPLED'`. Detect with `tech_id == 'DECOUPLED'`.
 - python-fints quirks:
