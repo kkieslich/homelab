@@ -112,7 +112,7 @@ def _do_full_fetch(client, profile, days: int, use_mt940: bool, out_path: Path) 
     end = dt.date.today()
     start = end - dt.timedelta(days=days)
     out_accounts: list[dict] = []
-    _do_fetch(
+    failures = _do_fetch(
         client, profile,
         accounts_filter_iban=None,
         start=start, end=end,
@@ -120,6 +120,8 @@ def _do_full_fetch(client, profile, days: int, use_mt940: bool, out_path: Path) 
         dump_xml=None,
         out_accounts=out_accounts,
     )
+    if failures:
+        raise RuntimeError(f"{failures} account fetch(es) failed")
     payload = {
         "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "banks": [{

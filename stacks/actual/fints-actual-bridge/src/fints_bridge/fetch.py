@@ -267,7 +267,9 @@ def _dialog_path_for(profile: BankProfile) -> "Path":
 
 def _do_fetch(client, profile, *, accounts_filter_iban, start, end, use_mt940, dump_xml, out_accounts):
     """Per-account work loop. Assumes the standing dialog on `client` is open
-    (either freshly initialised or resumed). Mutates `out_accounts` in place."""
+    (either freshly initialised or resumed). Mutates `out_accounts` in place and
+    returns the number of account-level failures."""
+    failures = 0
     if profile.enumerate_accounts:
         accounts = client.get_sepa_accounts()
     else:
@@ -287,6 +289,7 @@ def _do_fetch(client, profile, *, accounts_filter_iban, start, end, use_mt940, d
                 holdings_resp = client.get_holdings(a)
             except Exception as exc:  # noqa: BLE001
                 print(f"[fetch]   FAILED: {exc!r}", file=sys.stderr)
+                failures += 1
                 continue
             holdings_resp = _drain_sca(client, holdings_resp)
             holdings = [_holding_to_dict(h) for h in (holdings_resp or [])]
@@ -311,6 +314,7 @@ def _do_fetch(client, profile, *, accounts_filter_iban, start, end, use_mt940, d
                 )
         except Exception as exc:  # noqa: BLE001
             print(f"[fetch]   FAILED: {exc!r}", file=sys.stderr)
+            failures += 1
             continue
         resp = _drain_sca(client, resp)
         if use_mt940:
@@ -348,6 +352,7 @@ def _do_fetch(client, profile, *, accounts_filter_iban, start, end, use_mt940, d
                 "transactions": booked + pending,
             }
         )
+    return failures
 
 
 def fetch_bank(
@@ -418,7 +423,9 @@ def fetch_bank(
             dialog_blob = dialog_path.read_bytes()
             with client.resume_dialog(dialog_blob):
                 print(f"[fetch] {profile.key}: resumed saved dialog ({len(dialog_blob)} bytes) — should skip SCA", file=sys.stderr)
-                _do_fetch(client, profile, accounts_filter_iban=iban, start=start, end=end, use_mt940=use_mt940, dump_xml=dump_xml, out_accounts=out_accounts)
+                failures = _do_fetch(client, profile, accounts_filter_iban=iban, start=start, end=end, use_mt940=use_mt940, dump_xml=dump_xml, out_accounts=out_accounts)
+                if failures:
+                    raise RuntimeError(f"{failures} account fetch(es) failed")
                 _save_paused_dialog()
             fetched_via_resume = True
         except Exception as exc:  # noqa: BLE001
@@ -446,7 +453,9 @@ def fetch_bank(
         with client:
             if client.init_tan_response:
                 _drain_sca(client, client.init_tan_response)
-            _do_fetch(client, profile, accounts_filter_iban=iban, start=start, end=end, use_mt940=use_mt940, dump_xml=dump_xml, out_accounts=out_accounts)
+            failures = _do_fetch(client, profile, accounts_filter_iban=iban, start=start, end=end, use_mt940=use_mt940, dump_xml=dump_xml, out_accounts=out_accounts)
+            if failures:
+                raise RuntimeError(f"{failures} account fetch(es) failed")
             _save_paused_dialog()
 
 

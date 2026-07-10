@@ -156,8 +156,13 @@ for (const bp of filtered) {
     actualIdToBank.set(acc.actual_account_id, bankKey);
 
     if (accountBlob.type === 'depot') {
+      const holdings = accountBlob.holdings ?? [];
+      if (holdings.length === 0) {
+        console.error(`[${bankKey}] [depot] ${accountBlob.iban ?? accountBlob.account_number ?? '-'} (${acc.display_name ?? '?'}) returned 0 holdings; skipping depot revaluation to avoid treating a failed/stale fetch as a sold-out depot`);
+        continue;
+      }
       depotJobs.push({ bankKey, accountBlob, acc });
-      for (const h of accountBlob.holdings ?? []) {
+      for (const h of holdings) {
         allHoldings.push({
           bank: bankKey,
           depot_iban: accountBlob.iban,
@@ -166,8 +171,8 @@ for (const bp of filtered) {
           ...h,
         });
       }
-      const total = (accountBlob.holdings ?? []).reduce((s, h) => s + (h.total_value_cents || 0), 0);
-      console.error(`[${bankKey}] [depot] ${accountBlob.iban} (${acc.display_name ?? '?'}) → ${(accountBlob.holdings ?? []).length} holdings, total €${(total / 100).toFixed(2)}`);
+      const total = holdings.reduce((s, h) => s + (h.total_value_cents || 0), 0);
+      console.error(`[${bankKey}] [depot] ${accountBlob.iban ?? accountBlob.account_number ?? '-'} (${acc.display_name ?? '?'}) → ${holdings.length} holdings, total €${(total / 100).toFixed(2)}`);
       continue;
     }
 
