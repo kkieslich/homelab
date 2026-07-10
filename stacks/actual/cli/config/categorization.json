@@ -1,0 +1,44 @@
+{
+  "fallback": "Needs Review",
+  "newCategories": [
+    {
+      "name": "Needs Review",
+      "group": "Usual Expenses"
+    }
+  ],
+  "payeeSplits": [],
+  "payeeAutoSplits": [
+    {
+      "from": [
+        "PayPal Europe",
+        "PayPal",
+        "Klarna",
+        "Apple Services"
+      ],
+      "extract_regex": "(?:Ihr Einkauf bei|Payment to|Zahlung an|Merchant:?)[ ]+([^/\\n]+)"
+    }
+  ],
+  "transferRules": [],
+  "rules": [
+    {
+      "category": "Salary",
+      "match": {
+        "amount_sign": "positive",
+        "notes_regex": "salary|gehalt|lohn"
+      }
+    },
+    {
+      "category": "Refunds & Reimbursements",
+      "match": {
+        "amount_sign": "positive"
+      }
+    },
+    {
+      "category": "Bank Fees",
+      "match": {
+        "amount_sign": "negative",
+        "notes_regex": "gebuehr|gebühr|entgelt|fee"
+      }
+    }
+  ]
+}

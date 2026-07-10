@@ -65,19 +65,25 @@ services:
         fints-fetch --bank umwelt --days 30 --out /state/umwelt-fetch.json
         node bin/import.mjs --bank umwelt --in /state/umwelt-fetch.json
 
-  # Baader (finanzen.net zero): no SCA on read, so keep it running permanently.
-  fints_daemon_baader:
+  # Baader (finanzen.net zero): manual one-shot import. Baader has shown hard
+  # FinTS rejections that should not be retried forever, because a malformed
+  # empty depot response can make the portfolio look sold out. Run it from
+  # Komodo when you want to refresh cash transactions and holdings.
+  #
+  # Komodo procedure: "Actual - Sync Baader now"
+  # CLI fallback:
+  #   docker compose --profile manual run --rm --build fints_sync_baader
+  fints_sync_baader:
     <<: *fints-base
-    container_name: fints_daemon_baader
-    restart: on-failure:3
+    profiles: ["manual"]
+    container_name: fints_sync_baader
+    restart: "no"
     command:
-      - fints-daemon
-      - --bank=fnz
-      - --out=/state/fnz-fetch.json
-      - --fetch-interval=3600
-      - --heartbeat-interval=180
-      - --days=30
-      - --import-after
+      - sh
+      - -ec
+      - |
+        fints-fetch --bank fnz --days 30 --out /state/fnz-fetch.json
+        node bin/import.mjs --bank fnz --in /state/fnz-fetch.json
 
   # Mirrors the Actual server's data into a SQLite read-replica every
   # REFRESH_INTERVAL_SEC. Grafana mounts the same volume read-only and runs SQL
@@ -100,8 +106,8 @@ services:
       # Read-only fints-status.json + holdings.json so we can populate the
       # pipeline_status and holdings tables.
       - fints-state:/fints:ro
-      # Read-only budget.json so we can populate the budgets table.
-      - cli-config:/budget:ro
+      # Versioned budget.json so we can populate the budgets table.
+      - ./cli/config:/budget:ro
       # The SQLite read-replica. Shared with Grafana (monitoring stack mounts
       # this same named volume, actual_db, as external:true).
       - db:/db
@@ -113,7 +119,6 @@ services:
 volumes:
   server-data:
   fints-state:
-  cli-config:
   # The SQLite read-replica, shared read-only with the monitoring stack, which
   # references it as an external volume named `actual_db`.
   db:

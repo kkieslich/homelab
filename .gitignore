@@ -6,6 +6,8 @@
 *.enc.tmp
 *-fetch.json
 config/
+!stacks/actual/cli/config/
+!stacks/actual/cli/config/*.json
 data/
 matter-server/
 ledfx-config/

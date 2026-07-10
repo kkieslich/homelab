@@ -1,32 +1,29 @@
 # Actual Budget stack
 
-Self-hosted [Actual Budget](https://actualbudget.org/) running on the home server, with two bank-import paths, an LLM auto-categorizer, a local CLI for ad-hoc analysis, and a SQLite read-replica that feeds four Grafana dashboards.
+Self-hosted [Actual Budget](https://actualbudget.org/) running on the home server, with manual FinTS imports for UmweltBank and Baader, rule-based categorization, versioned budget targets, and a SQLite read-replica that feeds the Grafana finance dashboards.
 
 ## Architecture
 
 ```
-Banks (PSD2/XS2A)         Banks (FinTS, credit cards)
-        │                            │
-        ▼                            ▼
-  bank_sync (enable-actual)    fints-actual-bridge
-   container · :3009            python+node, manual SCA
-        │                            │
-        └─────────────┬──────────────┘
-                      ▼
-                actual_server  ◄────  actual_ai (LLM categorizer, every 4h)
-                container · :5006     container
-                      │
-       ┌──────────────┴──────────────┐
-       ▼                             ▼
-  cli (manual)                actual_db_sync
-  npx actual {fetch,         every 5 min →
-  analyze,subs,                       │
-  categorize}                         ▼
-                            SQLite (bind mount /persist/appdata/actual/db)
-                                      │ read-only mount
-                                      ▼
-                                   grafana
-                            (frser-sqlite-datasource)
+UmweltBank / Baader
+        │
+        ▼
+fints-actual-bridge
+manual Komodo procedures
+        │
+        ▼
+actual_server
+container · :5006
+        │
+        ├── cli/config/categorization.json
+        ├── cli/config/budget.json
+        │
+        ▼
+actual_db_sync
+every 5 min → SQLite (/db/actual.sqlite)
+        │
+        ▼
+grafana (frser-sqlite-datasource)
 ```
 
 The dashboards run real SQL against a year of historical data — not against a metrics-scraping window. Add a new SQL panel and it works against the full transaction history immediately.
@@ -36,8 +33,8 @@ The dashboards run real SQL against a year of historical data — not against a 
 | Container | Port | What it does |
 |---|---|---|
 | `actual_server` | 5006 | The Actual Budget server itself. Accessed at https://actual.home.kki.berlin via Caddy. |
-| `bank_sync` | 3009 | [enable-actual](enable-actual/) — PSD2 import for **checking accounts** of most European banks. Web UI at https://bank-sync.home.kki.berlin. |
-| `actual_ai` | — | [actual-ai](actual-ai/) — runs Anthropic Claude every 4h to auto-categorize new transactions. |
+| `fints_sync_umwelt` | — | Manual one-shot service for UmweltBank. Run through Komodo procedure **Actual - Sync UmweltBank now**. |
+| `fints_sync_baader` | — | Manual one-shot service for Baader / finanzen.net zero. Run through Komodo procedure **Actual - Sync Baader now**. |
 | `actual_db_sync` | — | Pulls a fresh snapshot from `actual_server` every 5 min and writes it to `/db/actual.sqlite` on the shared `/persist/appdata/actual/db` bind mount. |
 
 Grafana lives in [`stacks/monitoring/`](../../stacks/monitoring/) and reads the same `/persist/appdata/actual/db` directory.
@@ -47,14 +44,12 @@ Grafana lives in [`stacks/monitoring/`](../../stacks/monitoring/) and reads the 
 | Path | What it is |
 |---|---|
 | [`cli/`](cli/) | Local Node CLI (`actual fetch / analyze / subs / categorize`) for ad-hoc analysis and rule-based categorization. Not a container — runs from your dev machine. |
+| [`cli/config/`](cli/config/) | Versioned categorization rules and monthly budget targets. |
 | [`db-sync/`](db-sync/) | The SQLite read-replica writer. Reuses `cli/`'s subscription detector. |
 | [`fints-actual-bridge/`](fints-actual-bridge/) | Python+Node bridge that fetches credit-card transactions via FinTS (which exposes them, unlike PSD2) and imports them into Actual. Runs manually due to interactive SCA. See its own README for protocol notes. |
-| [`enable-actual/`](enable-actual/) | Submodule. The `bank_sync` service. PSD2 sync for checking accounts. |
-| [`actual-ai/`](actual-ai/) | Submodule. The `actual_ai` service. LLM-based transaction categorizer. |
 | `/persist/appdata/actual/server-data` | Bind mount for `actual_server`. |
-| `/persist/appdata/actual/sync-data` | Bind mount for `bank_sync`. |
 | `/persist/appdata/actual/fints-state` | FinTS runtime state, fetch output, status, and holdings files. |
-| `/persist/config/actual/banks.toml` | Restored or sops-rendered bank/account mapping. |
+| `banks.toml.enc` | SOPS-encrypted bank/account mapping, decrypted by Komodo pre-deploy. |
 
 ## SQLite read-replica schema
 
@@ -70,6 +65,7 @@ Grafana lives in [`stacks/monitoring/`](../../stacks/monitoring/) and reads the 
 | `pipeline_status` | one row per import source: `umwelt`, `fnz` (from `fints-status.json`), and `sync` (this container's own heartbeat) |
 | `holdings` | current depot positions from `holdings.json` — ISIN, name, pieces, market_value, total_value, valuation_date |
 | `holdings_history` | append-only — one row per holding per snapshot for portfolio-value-over-time charts |
+| `budgets` | monthly targets from `cli/config/budget.json` |
 
 Because every refresh is a `DELETE + re-INSERT` inside a transaction with WAL journaling, Grafana queries are non-blocking and never see partial state.
 
@@ -86,7 +82,6 @@ git submodule update --init
 cat > .env <<'EOF'
 ACTUAL_PASSWORD=<your password>
 ACTUAL_BUDGET_ID=<sync ID from Actual UI: Settings → Show advanced settings → Sync ID>
-ANTHROPIC_API_KEY=<for actual_ai>
 EOF
 
 # 4. Bring up the stack — this creates the /persist/appdata/actual/db bind mount
@@ -122,14 +117,12 @@ All four use the SQLite datasource (`uid: actual`) and run live SQL — copy any
 
 ## Daily / weekly workflows
 
-### "I want to import the latest credit card transactions"
+### "I want to import the latest bank transactions"
 
-```sh
-cd fints-actual-bridge
-source .venv/bin/activate
-fints-fetch --all --days 30 --out /tmp/all.json   # SCA approval on phone
-node bin/import.mjs --all --in /tmp/all.json       # idempotent — safe to re-run
-```
+Run the Komodo procedure for the bank you want to sync:
+
+- **Actual - Sync UmweltBank now**
+- **Actual - Sync Baader now**
 
 This also writes `fints-status.json` so the Pipeline Health dashboard knows when each bank last synced. Then categorize:
 
@@ -162,7 +155,9 @@ One-time setup:
 4. Add `BANKS_FNZ_LOGIN` (your Baader Online-Banking name, **not** your finanzen.net zero web login) and `BANKS_FNZ_PIN` to `stacks/actual/.env`.
 5. If the first connection fails with a Product-ID error, register a free FinTS Product-ID at <https://www.hbci-zka.de/register/prod_register.htm> and add `FINTS_PRODUCT_ID=...` to `.env`.
 
-Then fetch and import the Baader data:
+Then fetch and import the Baader data through Komodo procedure **Actual - Sync Baader now**.
+
+CLI fallback:
 ```sh
 cd fints-actual-bridge
 source .venv/bin/activate
@@ -175,7 +170,7 @@ What gets imported:
 - **Holdings snapshot** for the Depot (ISIN, shares, market value, valuation date) — written to `holdings.json`. The bridge also emits a single "Holdings revaluation" transaction on the off-budget Depot account so its Actual balance equals the sum of `total_value` across positions. The transaction is keyed by date so re-runs replace the same adjustment instead of stacking.
 - Per-trade detail (price/share, fees) is **not** captured — that lives only in the PDF Wertpapierabrechnungen. If you need cost-basis tracking for tax, use Portfolio Performance's Baader PDF importer alongside.
 
-SCA cadence is ~90 days (photoTAN/pushTAN device approval), same decoupled flow as your other banks.
+Baader imports are intentionally one-shot. If Baader rejects a FinTS request, the fetch fails closed and the importer will not revalue the depot from an empty holdings response.
 
 The new **Actual — Investments** Grafana dashboard reads from the SQLite `holdings` and `holdings_history` tables — current portfolio value, allocation pie, per-position time series, total cost basis vs. market value, and unrealised P/L on positions where Baader returns the acquisition price.
 
@@ -220,11 +215,8 @@ Open **Actual — Pipeline Health**. The per-bank import status table goes yello
 ```
 stacks/actual/
 ├── README.md                # this file
-├── docker-compose.yml       # 4 services + /persist/appdata/actual/db bind mount
+├── docker-compose.yml       # actual server, manual FinTS jobs, SQLite mirror
 ├── .env                     # secrets (gitignored)
-├── enable-actual/           # submodule (bank_sync)
-├── actual-ai/               # submodule (actual_ai)
-├── sync-data/               # bind mount (gitignored)
 ├── actual-data/             # bind mount (gitignored)
 ├── fints-actual-bridge/     # FinTS import pipeline
 │   ├── src/fints_bridge/    # python: fints-fetch, fints-spike CLIs
@@ -237,7 +229,7 @@ stacks/actual/
 │   ├── bin/actual.mjs       # subcommand dispatcher
 │   ├── src/commands/        # fetch, analyze, subs, categorize
 │   ├── src/lib/             # shared env loader, Actual client wrapper, paths
-│   └── config/categorization.json
+│   └── config/              # categorization.json + budget.json
 └── db-sync/                 # SQLite read-replica writer container
     ├── Dockerfile           # build context is stacks/actual/, copies cli + db-sync
     ├── package.json

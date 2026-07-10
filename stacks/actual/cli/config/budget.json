@@ -1,0 +1,25 @@
+{
+  "monthly_budgets": {
+    "Bank Fees": 20,
+    "Bills": 2100,
+    "Bills (Flexible)": 200,
+    "Brokerage": 0,
+    "Cash & ATM": 190,
+    "Crypto": 0,
+    "Donations & Memberships": 95,
+    "Entertainment": 210,
+    "Food": 345,
+    "Friends & P2P": 200,
+    "General": 80,
+    "Gov & Admin": 60,
+    "Gym & Fitness": 35,
+    "Internal Transfer": 0,
+    "Needs Review": 0,
+    "Personal Care": 80,
+    "Restaurants & Takeout": 230,
+    "Savings": 0,
+    "Shopping": 620,
+    "Subscriptions": 95,
+    "Transit & Mobility": 720
+  }
+}

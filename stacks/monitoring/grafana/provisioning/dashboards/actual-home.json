@@ -108,13 +108,13 @@
     {
       "id": 7,
       "type": "stat",
-      "title": "Uncategorized",
-      "description": "On-budget transactions with no category. Run `actual categorize --apply` to fix.",
+      "title": "Needs Review",
+      "description": "On-budget transactions with no category or the Needs Review fallback.",
       "gridPos": { "x": 0, "y": 8, "w": 6, "h": 3 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
       "targets": [{
         "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT COUNT(*) AS value FROM transactions WHERE category_id IS NULL AND account_offbudget = 0 AND transfer_id IS NULL"
+        "rawQueryText": "SELECT COUNT(*) AS value FROM transactions WHERE (category_id IS NULL OR category_name = 'Needs Review') AND account_offbudget = 0 AND transfer_id IS NULL"
       }],
       "fieldConfig": {
         "defaults": {

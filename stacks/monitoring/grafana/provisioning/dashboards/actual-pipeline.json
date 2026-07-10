@@ -73,12 +73,12 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Uncategorized",
+      "title": "Needs Review",
       "gridPos": { "x": 8, "y": 6, "w": 8, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
       "targets": [{
         "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT COUNT(*) AS value FROM transactions WHERE category_id IS NULL AND account_offbudget = 0 AND transfer_id IS NULL"
+        "rawQueryText": "SELECT COUNT(*) AS value FROM transactions WHERE (category_id IS NULL OR category_name = 'Needs Review') AND account_offbudget = 0 AND transfer_id IS NULL"
       }],
       "fieldConfig": {
         "defaults": {
