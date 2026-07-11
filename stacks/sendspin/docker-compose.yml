@@ -1,0 +1,38 @@
+name: "sendspin"
+
+# Sendspin player for the living-room HDMI output. Music Assistant runs the
+# Sendspin server (host network, port 8927); this connects as a player and plays
+# the synchronized stream to the couch user's PipeWire session → the Radeon HDMI
+# sink → the Denon AVR. Host network so it can reach MA on 127.0.0.1:8927.
+#
+# Audio path: sendspin daemon (sounddevice → ALSA 'pulse' plugin) → the couch
+# PipeWire pulse socket → HDMI sink. The socket lives in the couch user's
+# runtime dir (uid 1000, always logged in via auto-login); mount the pulse dir
+# (not just the socket file) so a session/socket recreate is picked up.
+
+services:
+  sendspin:
+    build: .
+    container_name: sendspin
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      - PULSE_SERVER=unix:/run/user/1000/pulse/native
+      # Unbuffered so `docker logs` shows the daemon output in real time.
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - /run/user/1000/pulse:/run/user/1000/pulse
+    command:
+      - daemon
+      - --url
+      - ws://127.0.0.1:8927/sendspin
+      - --name
+      - Livingroom
+      # Explicit stable id — the default is derived from the hostname, which
+      # collides if another sendspin-cli runs on the same host-network box.
+      - --id
+      - livingroom
+      - --audio-device
+      - pulse
+      - --log-level
+      - INFO

@@ -131,3 +131,20 @@ auto_update = true
 path = ""
 shell_mode = true
 command = 'SOPS_AGE_KEY_FILE=/var/lib/komodo-periphery/age-key.txt sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env'
+
+# Sendspin player — the official OHF Python player (sendspin-cli), built locally
+# from stacks/sendspin/Dockerfile. Connects to the Music Assistant Sendspin
+# server (host network, :8927) and plays to the couch PipeWire HDMI sink → Denon.
+# Replaces the NixOS sendspin-go service, whose Go client deadlocked during
+# playback (blocking channel sends in its websocket read-loop). No image poll
+# (local build); no secrets.
+[[stack]]
+name = "sendspin"
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/sendspin"
+file_paths = ["docker-compose.yml"]
