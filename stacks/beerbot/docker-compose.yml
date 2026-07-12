@@ -49,12 +49,18 @@ services:
       API_AUDIENCE: beerbot-api
       APP_WEB_ORIGINS: https://beerbot.home.kki.berlin
       MINIO_PRESIGNED_URL_TTL_HOURS: "24"
-      # Push notifications OFF: this test instance forward-syncs REAL device tokens
-      # from old prod, so it must never send (would ping real users' phones). The
-      # API boots fine without the Firebase key (none is mounted here).
-      NOTIFICATIONS_ENABLED: "false"
+      # Push notifications ON. Safe on this parallel-run instance: old device tokens
+      # are NOT forward-synced (the migrator dropped the notifsub phase), and this
+      # sends via the fresh beerbot-v4 FCM project, which holds only genuine new-app
+      # registrations — so there is nothing here that could ping an old-app user.
+      NOTIFICATIONS_ENABLED: "true"
+      # v4 service-account key: pre_deploy decrypts fcm-api.json.enc → ./fcm-api.json,
+      # mounted below; Startup.cs reads it via FCM_CREDENTIALS_FILE.
+      FCM_CREDENTIALS_FILE: /keys/fcm-api.json
       # POSTGRES_* (DB connection is built from them) and MINIO_ROOT_USER/PASSWORD
       # come from ./.env.
+    volumes:
+      - ./fcm-api.json:/keys/fcm-api.json:ro
     networks: [proxy_net]
 
   # --- Admin API (served under admin host at /api, prefix stripped by Caddy) --

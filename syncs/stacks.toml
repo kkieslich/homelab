@@ -124,13 +124,15 @@ poll_for_updates = true
 auto_update = true
 # Deploy-time secret decryption: decrypt the sops-encrypted enc.env in this repo
 # to a gitignored ./.env (which every service reads via env_file) using the host
-# age key, just before compose runs. sops is on Periphery's PATH and reads its
+# age key, just before compose runs. Also decrypt fcm-api.json.enc → ./fcm-api.json
+# (the v4 FCM service-account key mounted into beerbot-api for push sends), same as
+# the actual stack decrypts banks.toml.enc. sops is on Periphery's PATH and reads its
 # private age-key copy (both provisioned by the NixOS komodo module). Komodo runs
 # pre_deploy with cwd = run_directory, so enc.env/.env are plain relative paths.
 [stack.config.pre_deploy]
 path = ""
 shell_mode = true
-command = 'SOPS_AGE_KEY_FILE=/var/lib/komodo-periphery/age-key.txt sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env'
+command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env && SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary fcm-api.json.enc > fcm-api.json && chmod 600 fcm-api.json'
 
 # Sendspin player — the official OHF Python player (sendspin-cli), built locally
 # from stacks/sendspin/Dockerfile. Connects to the Music Assistant Sendspin

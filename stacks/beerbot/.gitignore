@@ -3,3 +3,8 @@
 *.env
 !enc.env
 !*.env.example
+
+# Same pattern for the FCM key: fcm-api.json.enc is committed (encrypted, safe);
+# pre_deploy decrypts it to a gitignored fcm-api.json on the host. Never commit the
+# decrypted key.
+fcm-api.json
