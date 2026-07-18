@@ -47,6 +47,14 @@ batches, calls Actual with `reimportDeleted: false`, and writes privacy-safe run
 manifests under the FinTS state volume. Fuzzy duplicate candidates are reported,
 never automatically deleted or merged.
 
+Current `banks[]` fetch/daemon payloads must provide a complete valid window on
+every bank, with identical windows when several banks share one manifest. A
+complete explicit top-level range may intentionally apply to all banks; a
+partial or invalid explicit range fails closed even when nested windows are
+valid. Range-less compatibility exists only for the distinguishable legacy
+single-`bank` (non-`banks[]`) payload shape. Range validation occurs before any
+Actual API write.
+
 ## Operator entry points
 
 Komodo provides one guarded path per interactive bank:

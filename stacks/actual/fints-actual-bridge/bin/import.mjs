@@ -38,20 +38,23 @@ function requestedRange(payload) {
     || payload.to != null || payload.end != null || payload.date_to != null;
   if (explicit) {
     const range = payload.requested_range ?? payload;
-    return {
+    const result = {
       from: safeIsoDate(range.from ?? range.start ?? payload.date_from),
       to: safeIsoDate(range.to ?? range.end ?? payload.date_to),
     };
+    if (!result.from || !result.to) throw new Error('explicit import range must be complete and valid');
+    return result;
   }
 
-  const banks = Array.isArray(payload.banks) ? payload.banks : [];
-  if (banks.length === 0) return { from: null, to: null };
+  if (!Array.isArray(payload.banks)) return { from: null, to: null };
+  const banks = payload.banks;
+  if (banks.length === 0) throw new Error('banks payload must include a complete range');
   const ranges = banks.map(({ window } = {}) => ({
     from: safeIsoDate(window?.start),
     to: safeIsoDate(window?.end),
   }));
+  if (ranges.some(({ from, to }) => !from || !to)) throw new Error('bank windows must be complete and valid');
   if (banks.length === 1) return ranges[0];
-  if (ranges.some(({ from, to }) => !from || !to)) throw new Error('multiple bank windows must be complete');
   const identity = `${ranges[0].from}\u0000${ranges[0].to}`;
   if (ranges.some(({ from, to }) => `${from}\u0000${to}` !== identity)) {
     throw new Error('multiple bank windows must match');

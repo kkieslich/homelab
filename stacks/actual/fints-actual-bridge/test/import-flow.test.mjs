@@ -66,22 +66,20 @@ test('imports a validated canonical batch with deleted-record protection', async
   }]);
 });
 
-test('sanitizes malicious requested range strings in success and failure manifests', async () => {
-  for (const shouldFail of [false, true]) {
-    const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
-    const malicious = structuredClone(payload);
-    malicious.requested_range = { from: '2026-07-01 PIN=1234', to: 'IBAN PRIVATE PAYEE' };
-    if (shouldFail) malicious.accounts[0].transactions.push({ ...transaction });
-    await runImport({
-      payload: malicious, config, registry,
-      actualApi: { async importTransactions() { return { added: [], updated: [] }; } },
-      manifestDir, dryRun: false,
-      now: () => new Date('2026-07-18T10:00:00.000Z'),
-    }).catch(() => {});
-    const [manifest] = await manifestsIn(manifestDir);
-    assert.deepEqual(manifest.requested_range, { from: null, to: null });
-    assert.doesNotMatch(JSON.stringify(manifest), /PIN|IBAN|PRIVATE|PAYEE|1234/i);
-  }
+test('rejects and sanitizes invalid explicit requested range strings', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const malicious = structuredClone(payload);
+  malicious.requested_range = { from: '2026-07-01 PIN=1234', to: 'IBAN PRIVATE PAYEE' };
+  let calls = 0;
+  await assert.rejects(() => runImport({
+    payload: malicious, config, registry,
+    actualApi: { async importTransactions() { calls += 1; return {}; } },
+    manifestDir,
+  }), /validation failed/i);
+  assert.equal(calls, 0);
+  const [manifest] = await manifestsIn(manifestDir);
+  assert.deepEqual(manifest.requested_range, { from: null, to: null });
+  assert.doesNotMatch(JSON.stringify(manifest), /PIN|IBAN|PRIVATE|PAYEE|1234/i);
 });
 
 test('records the real daemon banks window in the manifest', async () => {
@@ -123,14 +121,57 @@ test('rejects conflicting daemon bank windows before calling Actual', async () =
   assert.deepEqual(manifest.requested_range, { from: null, to: null });
 });
 
-test('keeps a missing single-bank window privacy-safe and explicit', async () => {
+test('rejects missing, incomplete, and invalid single banks windows before Actual', async () => {
+  for (const window of [undefined, { start: '2026-06-18' }, { start: 'not-a-date', end: '2026-07-18' }]) {
+    const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+    let calls = 0;
+    const missing = { banks: [{ bank: { key: 'fixture' }, window, accounts: [{ iban: 'SECRET-IBAN', transactions: [transaction] }] }] };
+    await assert.rejects(() => runImport({
+      payload: missing, config, registry,
+      actualApi: { importTransactions: async () => { calls += 1; return {}; } },
+      manifestDir,
+    }), /validation failed/i);
+    assert.equal(calls, 0);
+    const [manifest] = await manifestsIn(manifestDir);
+    assert.deepEqual(manifest.requested_range, { from: null, to: null });
+  }
+});
+
+test('rejects partial or invalid explicit ranges even with a valid nested window', async () => {
+  for (const requestedRange of [
+    { from: '2026-06-18' },
+    { from: 'invalid', to: '2026-07-18' },
+  ]) {
+    const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+    let calls = 0;
+    const ambiguous = {
+      requested_range: requestedRange,
+      banks: [{
+        bank: { key: 'fixture' },
+        window: { start: '2026-06-18', end: '2026-07-18' },
+        accounts: [{ iban: 'SECRET-IBAN', transactions: [transaction] }],
+      }],
+    };
+    await assert.rejects(() => runImport({
+      payload: ambiguous, config, registry,
+      actualApi: { importTransactions: async () => { calls += 1; return {}; } },
+      manifestDir,
+    }), /validation failed/i);
+    assert.equal(calls, 0);
+    const [manifest] = await manifestsIn(manifestDir);
+    assert.deepEqual(manifest.requested_range, { from: null, to: null });
+  }
+});
+
+test('allows a clearly legacy non-banks payload without a range', async () => {
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
-  const missing = { banks: [{ bank: { key: 'fixture' }, accounts: [{ iban: 'SECRET-IBAN', transactions: [transaction] }] }] };
+  const legacy = { bank: { key: 'fixture' }, accounts: [{ iban: 'SECRET-IBAN', transactions: [transaction] }] };
   const manifest = await runImport({
-    payload: missing, config, registry,
+    payload: legacy, config, registry,
     actualApi: { importTransactions: async () => ({ added: [], updated: [] }) },
     manifestDir,
   });
+  assert.equal(manifest.outcome, 'success');
   assert.deepEqual(manifest.requested_range, { from: null, to: null });
 });
 
