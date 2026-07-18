@@ -11,8 +11,12 @@ place to change finance data. Grafana and SQLite are read-only checks.
 
 1. Confirm no Actual Komodo procedure or importer is already running.
 2. Run **Actual - Sync UmweltBank now** and wait for completion.
-3. Inspect the latest privacy-safe run manifest. Stop for failure, quarantine,
-   unexpected zero data, or counts beyond the reviewed expectation.
+3. Inspect the latest privacy-safe run manifest with the exact read-only command
+   in [the README](../README.md#inspect-the-latest-bank-manifest), using
+   `MANIFEST_SOURCE=fints-umwelt`. Compare its account counts with the last
+   successful manifest for the same requested window plus known new bank
+   postings. Stop for failure, quarantine, unexpected zero data, an account
+   appearing/disappearing, or an unexplained count change.
 4. Confirm the Baader daemon is healthy. If its session expired, run
    **Actual - Sync Baader now** once and wait for `Enter TAN:`.
 5. Enter the smsTAN through SSH:
@@ -23,7 +27,8 @@ place to change finance data. Grafana and SQLite are read-only checks.
    ```
 
    Type the TAN and press Enter. Detach with Ctrl-p, Ctrl-q. Never press Ctrl-c.
-   Then inspect `sudo docker logs --tail 100 fints_daemon_baader`.
+   Then inspect `sudo docker logs --tail 100 fints_daemon_baader` and run the
+   manifest command with `MANIFEST_SOURCE=fints-fnz`.
 6. Run **Actual - Audit imports** and **Actual - Finance health**. Both are
    read-only.
 
@@ -81,8 +86,9 @@ target is below 10 only after the live rule migration meets its coverage gate.
 If an import fails, preserve its manifest, stop other writers, run the two
 read-only procedures, and diagnose the source before retrying. If it wrote data,
 verify bank evidence and merge only confirmed duplicates in Actual. Prove an
-identical fetch window adds zero before resuming. Use [restore.md](restore.md)
-for backup/restore; never delete a production volume in place.
+identical fetch window has `added=0`, only understood pending/cleared updates,
+and `quarantined=0` before resuming. Use [restore.md](restore.md) for
+backup/restore; never delete a production volume in place.
 
 Use [month-close.md](month-close.md) for closed-month reconciliation, funding,
 sinking funds, and immutable snapshots.

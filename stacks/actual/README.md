@@ -64,6 +64,62 @@ with CSV import, the retired date/index importer, or the external categorizer.
 The database projection refreshes on its normal cadence; a bank procedure does
 not need to restart it.
 
+### Inspect the latest bank manifest
+
+The `actual_db_sync` container mounts FinTS state read-only at `/fints`. Run the
+following after SSHing to the server. Set `MANIFEST_SOURCE` to exactly
+`fints-umwelt` or `fints-fnz`; the script selects the latest matching manifest
+by `finished_at` and prints only the manifest's privacy-safe contract fields:
+
+```sh
+sudo docker exec -e MANIFEST_SOURCE=fints-umwelt actual_db_sync \
+  node --input-type=module -e '
+import { readFile, readdir } from "node:fs/promises";
+const dir = "/fints/import-runs";
+const manifests = [];
+for (const name of await readdir(dir)) {
+  if (!name.endsWith(".json")) continue;
+  const value = JSON.parse(await readFile(`${dir}/${name}`, "utf8"));
+  if (value.source === process.env.MANIFEST_SOURCE) manifests.push(value);
+}
+manifests.sort((a, b) => String(a.finished_at).localeCompare(String(b.finished_at)));
+const value = manifests.at(-1);
+if (!value) throw new Error(`No manifest for ${process.env.MANIFEST_SOURCE}`);
+console.log(JSON.stringify({
+  schema_version: value.schema_version,
+  run_id: value.run_id,
+  source: value.source,
+  importer_version: value.importer_version,
+  started_at: value.started_at,
+  finished_at: value.finished_at,
+  requested_range: value.requested_range,
+  outcome: value.outcome,
+  error_code: value.error_code,
+  accounts: (value.accounts ?? []).map(account => ({
+    actual_account_id: account.actual_account_id,
+    fetched: account.fetched,
+    valid: account.valid,
+    added: account.added,
+    updated: account.updated,
+    quarantined: account.quarantined,
+  })),
+}, null, 2));
+'
+```
+
+For Baader, change only the first line to
+`MANIFEST_SOURCE=fints-fnz`. UUID filenames do not contain the bank name, so do
+not select manifests with `ls | tail`; filter the parsed `source` as above.
+
+Before a run, obtain the expectation from the last successful manifest for the
+same source and requested date window plus the bank's known new postings. Treat
+its per-account `fetched` and `valid` counts as the baseline, not an automatic
+approval: investigate unexpected decreases, large increases, or an account
+appearing/disappearing. After a repeated identical window, every account must
+have `added=0`; `updated` is allowed only for an understood pending/cleared
+transition, and `quarantined` must be zero. The manifest intentionally contains
+no raw transactions, payees, credentials, IBANs, or source account identifiers.
+
 ### Entering a Baader SMS TAN
 
 After restarting the daemon, wait for `Enter TAN:` in its logs, then attach:
@@ -154,18 +210,22 @@ categorization, reconciliation, scheduling, or budgeting.
 The month-close CLI is dry-run by default:
 
 ```sh
-node cli/bin/actual.mjs month-close \
-  --month=YYYY-MM --snapshot=/path/to/actual.sqlite
+ssh -t kolja@192.168.1.20
+sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs month-close \
+  --month=YYYY-MM --snapshot=/db/actual.sqlite
 ```
 
-Only after all gates pass, capture immutable snapshots with `--apply`. Review
+The first command only validates and previews. Only after all gates pass, add
+`--apply`; this intentionally writes immutable budget and net-worth snapshot
+rows to the analytical SQLite database, but does not modify Actual. Review
 annotations must use the typed `accepted_for_close` decision; a generic note is
 not a substitute.
 
 ## Failure recovery
 
 1. Stop if a manifest reports failure, quarantine, unexpected zero data, or
-   counts beyond the reviewed dry-run expectation. Do not run another writer.
+   counts inconsistent with the prior successful same-source/window baseline
+   and known new postings. Do not run another writer.
 2. Preserve the manifest and inspect sanitized service logs. Never copy raw
    banking data into an incident record.
 3. Run **Actual - Audit imports** and **Actual - Finance health**.

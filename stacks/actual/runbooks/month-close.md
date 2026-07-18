@@ -85,20 +85,22 @@ including today.
 
 ## 5. Preview and capture immutable snapshots
 
-The CLI is dry-run by default. Run it against the production projection path
-from an approved operator shell and inspect the reported row counts:
+The CLI is dry-run by default. From a local terminal, connect to the server and
+run it in the existing projection container; inspect the reported row counts:
 
 ```sh
-node /app/cli/bin/actual.mjs month-close \
+ssh -t kolja@192.168.1.20
+sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs month-close \
   --month=YYYY-MM --snapshot=/db/actual.sqlite
 ```
 
 Only after all preceding gates pass, repeat once with `--apply` (and optionally
-a valid `--captured-at` timestamp). The transaction is atomic and the same
-snapshot identity is idempotent:
+a valid `--captured-at` timestamp). `--apply` intentionally writes immutable
+budget and net-worth snapshot rows into `/db/actual.sqlite`; it does not change
+Actual. The transaction is atomic and the same snapshot identity is idempotent:
 
 ```sh
-node /app/cli/bin/actual.mjs month-close \
+sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs month-close \
   --month=YYYY-MM --snapshot=/db/actual.sqlite --apply
 ```
 
