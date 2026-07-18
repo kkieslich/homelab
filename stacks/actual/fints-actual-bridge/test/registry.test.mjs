@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { validateOwnership } from '../src/importer/registry.mjs';
@@ -30,4 +31,25 @@ test('keeps the enabled owner when a disabled legacy importer is also listed', (
   const disabled = { actual_account_id: 'a1', source: 'legacy', enabled: false };
 
   assert.equal(validateOwnership([enabled, disabled]).get('a1'), enabled);
+});
+
+test('the production ownership registry defines all seven accounts without bank identifiers', async () => {
+  const registryUrl = new URL('../../cli/config/accounts.json', import.meta.url);
+  const raw = await readFile(registryUrl, 'utf8');
+  const entries = JSON.parse(raw);
+
+  assert.equal(entries.length, 7);
+  assert.equal(validateOwnership(entries).size, 7);
+  for (const entry of entries) {
+    assert.deepEqual(Object.keys(entry).sort(), [
+      'actual_account_id',
+      'display_name',
+      'enabled',
+      'interactive_auth',
+      'role',
+      'source',
+      'source_account',
+    ]);
+  }
+  assert.doesNotMatch(raw, /iban|credential|password|accountnumber/i);
 });

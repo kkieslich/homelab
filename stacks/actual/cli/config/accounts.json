@@ -1,0 +1,65 @@
+[
+  {
+    "actual_account_id": "a793a91e-3831-4562-860c-b5149131058b",
+    "display_name": "Baader Verrechnungskonto",
+    "source": "fints-fnz",
+    "source_account": "baader-cash",
+    "role": "on_budget_cash",
+    "enabled": true,
+    "interactive_auth": true
+  },
+  {
+    "actual_account_id": "964fd294-b9c2-48a6-81ba-74f0d7470a29",
+    "display_name": "FNZ Bank Depot",
+    "source": "legacy-fnz",
+    "source_account": "fnz-bank-depot",
+    "role": "investment",
+    "enabled": false,
+    "interactive_auth": true
+  },
+  {
+    "actual_account_id": "d4ac8e5b-d0d3-43e9-ac05-29ff6c0f2e93",
+    "display_name": "Triodos Giro",
+    "source": "legacy-triodos",
+    "source_account": "triodos-giro",
+    "role": "on_budget_cash",
+    "enabled": false,
+    "interactive_auth": false
+  },
+  {
+    "actual_account_id": "e2e7ab6d-e53d-416b-a56c-58f30d421160",
+    "display_name": "Triodos MasterCard",
+    "source": "legacy-triodos",
+    "source_account": "triodos-mastercard",
+    "role": "credit_card",
+    "enabled": false,
+    "interactive_auth": false
+  },
+  {
+    "actual_account_id": "631d865a-e902-4cc6-94d6-b986e9bf2693",
+    "display_name": "UmweltBank Giro",
+    "source": "fints-umwelt",
+    "source_account": "umwelt-giro",
+    "role": "on_budget_cash",
+    "enabled": true,
+    "interactive_auth": true
+  },
+  {
+    "actual_account_id": "b642dd11-c0d8-4837-9c76-c0b05f09e37c",
+    "display_name": "Umweltbank MasterCard",
+    "source": "fints-umwelt",
+    "source_account": "umwelt-mastercard",
+    "role": "credit_card",
+    "enabled": true,
+    "interactive_auth": true
+  },
+  {
+    "actual_account_id": "ae3a7b4a-2d6c-4346-8ba3-5351fc93ba0c",
+    "display_name": "finanzen-zero Depot",
+    "source": "fints-fnz",
+    "source_account": "finanzen-zero-depot",
+    "role": "investment",
+    "enabled": true,
+    "interactive_auth": true
+  }
+]
