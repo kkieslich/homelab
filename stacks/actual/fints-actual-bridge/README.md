@@ -68,7 +68,7 @@ fints-fetch --bank umwelt
 Each transaction in the output:
 ```jsonc
 {
-  "imported_id": "REF12345",          // bank's AcctSvcrRef — Actual's importedID for dedup
+  "imported_id": "REF12345",          // raw bank reference; not assumed globally unique
   "date": "2026-05-01",
   "value_date": "2026-05-02",
   "amount_cents": -1234,              // signed: DBIT (money out) = negative
@@ -81,7 +81,10 @@ Each transaction in the output:
 }
 ```
 
-Re-runs are idempotent — Actual dedupes by `imported_id`.
+Re-runs are idempotent. The importer namespaces the raw reference by source and
+account, then qualifies it with a normalized stable-content fingerprint. This
+matters for banks that reuse placeholder references such as `STARTUMS`: distinct
+transactions remain distinct, while a repeated fetch produces the same IDs.
 
 ## Step 3 — import into Actual via the Node sidecar
 
@@ -131,6 +134,13 @@ The importer:
 - Loads `banks.toml`, finds the IBAN→Actual-account-UUID mapping for the requested bank.
 - Skips any IBAN not listed (or still set to `REPLACE-...`).
 - Maps each fetched transaction into Actual's `importTransactions` shape (cents already signed, `imported_id` for dedup, `cleared = (status === 'BOOK')`).
+- Before its first canonical write, reads the account history and migrates an
+  exact, unique legacy-ID/content match in place. Ambiguous legacy matches are
+  quarantined and abort the whole run before any write; deleted transactions
+  remain protected by `reimportDeleted: false`.
+- Keeps one stable depot-revaluation transaction per depot. Existing valuation
+  rows are atomically updated in place; the recurring importer never deletes a
+  valid valuation before creating a replacement.
 - Calls `actual.init()` → `downloadBudget(syncId)` → `importTransactions(accountId, [...])` → `shutdown()`.
 - Prints per-account `added=N updated=M` so you see the diff per run.
 

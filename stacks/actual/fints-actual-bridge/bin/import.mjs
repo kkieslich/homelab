@@ -10,7 +10,7 @@ import { parseArgs } from 'node:util';
 import * as actual from '@actual-app/api';
 import * as toml from 'smol-toml';
 
-import { toActualTransaction } from '../src/importer/canonical.mjs';
+import { canonicalImportedId, toActualTransaction } from '../src/importer/canonical.mjs';
 import { writeRunManifest } from '../src/importer/manifest.mjs';
 import { validateOwnership } from '../src/importer/registry.mjs';
 import { validateBatch } from '../src/importer/validate.mjs';
@@ -72,6 +72,44 @@ function safeIsoDate(value) {
 
 function resultCount(result, key) {
   return Array.isArray(result?.[key]) ? result[key].length : 0;
+}
+
+function normalized(value) {
+  return String(value ?? '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('und');
+}
+
+function sameImportedContent(existing, record) {
+  return existing.date === record.date
+    && existing.amount === record.amount
+    && normalized(existing.imported_payee ?? existing.notes ?? existing.payee_name)
+      === normalized(record.imported_payee ?? record.notes ?? record.payee_name);
+}
+
+function legacyAliases({ source, sourceAccount, transaction }) {
+  const raw = String(transaction.imported_id ?? '').trim();
+  return new Set([
+    raw,
+    canonicalImportedId({ source, sourceAccount, sourceTransactionId: raw }),
+  ]);
+}
+
+function planLegacyMigrations(existing, batch) {
+  const migrations = [];
+  const claimed = new Set();
+  for (const item of batch.items) {
+    if (existing.some((transaction) => transaction.imported_id === item.record.imported_id)) continue;
+    const aliases = legacyAliases(item);
+    const matches = existing.filter((transaction) =>
+      !claimed.has(transaction.id)
+      && aliases.has(String(transaction.imported_id ?? '').trim())
+      && sameImportedContent(transaction, item.record));
+    if (matches.length > 1) return { migrations: [], ambiguous: 1 };
+    if (matches.length === 1) {
+      claimed.add(matches[0].id);
+      migrations.push({ id: matches[0].id, imported_id: item.record.imported_id });
+    }
+  }
+  return { migrations, ambiguous: 0 };
 }
 
 export async function runImport({
@@ -146,11 +184,13 @@ export async function runImport({
             });
           }
         }
-        const records = transactions.map((transaction) => toActualTransaction({
+        const items = transactions.map((transaction) => ({
           source: owner.source,
           sourceAccount: owner.source_account,
           transaction,
+          record: toActualTransaction({ source: owner.source, sourceAccount: owner.source_account, transaction }),
         }));
+        const records = items.map(({ record }) => record);
         if (transactions.length > rawTransactions.length) records[0].imported_payee = 'Opening Balance';
         const summary = {
           actual_account_id: mapping.actual_account_id,
@@ -164,7 +204,7 @@ export async function runImport({
         const validated = validateBatch(records, { previousCount: transactions.length });
         summary.valid = validated.records.length;
         summary.quarantined = validated.duplicateCandidates.length;
-        batches.push({ bankKey, actualAccountId: mapping.actual_account_id, records: validated.records, summary });
+        batches.push({ bankKey, actualAccountId: mapping.actual_account_id, records: validated.records, items, summary });
         recordsByActualId.set(mapping.actual_account_id,
           (recordsByActualId.get(mapping.actual_account_id) ?? []).concat(validated.records));
       }
@@ -173,6 +213,45 @@ export async function runImport({
     if (dryRun) {
       output(`${JSON.stringify(Object.fromEntries(recordsByActualId), null, 2)}\n`);
     } else {
+      // Finish every ambiguity/read check before the first mutation. This makes
+      // canonical-ID migration fail closed rather than partially importing.
+      const migrationPlans = [];
+      for (const batch of batches) {
+        if (batch.records.length === 0 || typeof actualApi.getTransactions !== 'function') continue;
+        const existing = await actualApi.getTransactions(batch.actualAccountId, '1900-01-01', '2100-01-01');
+        const plan = planLegacyMigrations(existing, batch);
+        if (plan.ambiguous) {
+          batch.summary.quarantined += plan.ambiguous;
+          throw new Error('ambiguous legacy transaction identity');
+        }
+        migrationPlans.push(...plan.migrations);
+      }
+
+      const revaluationPrefix = 'fints-bridge-depot-revaluation-';
+      const depotPlans = [];
+      for (const job of depotJobs) {
+        const target = job.sourceAccount.holdings.reduce((sum, holding) => sum + (holding.total_value_cents || 0), 0);
+        const existing = await actualApi.getTransactions(job.mapping.actual_account_id, '1900-01-01', '2100-01-01');
+        const prior = existing.filter((transaction) => (transaction.imported_id ?? '').startsWith(revaluationPrefix));
+        if (prior.length > 1) {
+          job.summary.quarantined += prior.length;
+          throw new Error('multiple depot revaluation transactions require manual reconciliation');
+        }
+        const current = existing
+          .filter((transaction) => !(transaction.imported_id ?? '').startsWith(revaluationPrefix))
+          .reduce((sum, transaction) => sum + transaction.amount, 0);
+        depotPlans.push({ job, target, delta: target - current, prior: prior[0] });
+      }
+
+      try {
+        for (const migration of migrationPlans) {
+          await actualApi.updateTransaction(migration.id, { imported_id: migration.imported_id });
+        }
+      } catch {
+        errorCode = 'ACTUAL_IMPORT_FAILED';
+        throw new Error('Actual import failed');
+      }
+
       for (const batch of batches) {
         if (batch.records.length === 0) continue;
         let result;
@@ -192,28 +271,31 @@ export async function runImport({
         }
       }
 
-      const revaluationPrefix = 'fints-bridge-depot-revaluation-';
-      for (const job of depotJobs) {
+      for (const plan of depotPlans) {
+        const { job, target, delta, prior } = plan;
         try {
-          const target = job.sourceAccount.holdings.reduce((sum, holding) => sum + (holding.total_value_cents || 0), 0);
-          const existing = await actualApi.getTransactions(job.mapping.actual_account_id, '1900-01-01', '2100-01-01');
-          const prior = existing.filter((transaction) => (transaction.imported_id ?? '').startsWith(revaluationPrefix));
-          const current = existing
-            .filter((transaction) => !(transaction.imported_id ?? '').startsWith(revaluationPrefix))
-            .reduce((sum, transaction) => sum + transaction.amount, 0);
-          for (const transaction of prior) await actualApi.deleteTransaction(transaction.id);
-          const delta = target - current;
           if (delta !== 0) {
-            const today = instant(now).slice(0, 10);
-            const result = await actualApi.importTransactions(job.mapping.actual_account_id, [{
-              date: today, amount: delta,
+            const record = {
+              date: instant(now).slice(0, 10), amount: delta,
               payee_name: 'Holdings revaluation', imported_payee: 'Holdings revaluation',
               notes: `Auto-adjustment so depot balance equals SUM(holdings.total_value) = €${(target / 100).toFixed(2)}`,
-              imported_id: `${revaluationPrefix}${job.mapping.actual_account_id}-${today}`,
+              imported_id: `${revaluationPrefix}${job.mapping.actual_account_id}`,
               cleared: true,
-            }], { reimportDeleted: false });
-            job.summary.added = resultCount(result, 'added');
-            job.summary.updated = resultCount(result, 'updated');
+            };
+            if (prior) {
+              await actualApi.updateTransaction(prior.id, record);
+              job.summary.updated = 1;
+            } else {
+              const result = await actualApi.importTransactions(job.mapping.actual_account_id, [record], { reimportDeleted: false });
+              job.summary.added = resultCount(result, 'added');
+              job.summary.updated = resultCount(result, 'updated');
+            }
+          } else if (prior) {
+            await actualApi.updateTransaction(prior.id, {
+              amount: 0,
+              imported_id: `${revaluationPrefix}${job.mapping.actual_account_id}`,
+            });
+            job.summary.updated = 1;
           }
           const bucket = perBank.get(job.bankKey) ?? { added: 0, updated: 0 };
           bucket.added += job.summary.added;
