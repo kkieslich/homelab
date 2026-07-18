@@ -21,6 +21,9 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/proxy"
 file_paths = ["docker-compose.yml"]
+# The separate five-minute Proxy refresh must not hit Docker Hub every cycle.
+# Global Auto Update still handles Caddy image digest changes.
+auto_pull = false
 poll_for_updates = true
 auto_update = true
 [stack.config.pre_deploy]

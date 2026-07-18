@@ -107,6 +107,8 @@ def main() -> int:
     if "path: ./.env" not in proxy_compose:
         errors.append("proxy: Caddy service must consume its repo-decrypted .env")
     proxy_config = by_name["proxy"]["config"]
+    if proxy_config.get("auto_pull") is not False:
+        errors.append("proxy: periodic refresh requires auto_pull = false")
     if "sops -d" not in proxy_config.get("pre_deploy", {}).get("command", ""):
         errors.append("proxy: missing SOPS pre_deploy decryption")
 
