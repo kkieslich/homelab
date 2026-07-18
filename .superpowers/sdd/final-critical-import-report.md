@@ -1,7 +1,7 @@
 # Final critical importer fixes
 
 Date: 2026-07-18
-Implementation commits: `7683571`, `e7795d0`
+Implementation commits: `7683571`, `e7795d0`, `ba1a918`
 Production access/deployment: none
 
 ## Scope
@@ -124,7 +124,7 @@ atomicity behaviors; the tests now make them explicit regressions.
 
 ```text
 FinTS importer: npm test
-49 tests, 49 pass, 0 fail
+50 tests, 50 pass, 0 fail
 
 Related Actual CLI: npm test
 14 tests, 14 pass, 0 fail
