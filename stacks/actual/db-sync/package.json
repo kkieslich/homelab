@@ -9,7 +9,8 @@
     "node": ">=21.7"
   },
   "scripts": {
-    "start": "node src/index.mjs"
+    "start": "node src/index.mjs",
+    "test": "node --test"
   },
   "dependencies": {
     "@actual-app/api": "^26.5.0",

@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   category_id         TEXT,
   category_name       TEXT,
   category_group_name TEXT,
+  category_role       TEXT,
   category_is_income  INTEGER NOT NULL DEFAULT 0,
   notes               TEXT,
   cleared             INTEGER NOT NULL DEFAULT 0,
@@ -85,6 +86,58 @@ CREATE INDEX IF NOT EXISTS idx_tx_category      ON transactions(category_id);
 CREATE INDEX IF NOT EXISTS idx_tx_category_name ON transactions(category_name);
 CREATE INDEX IF NOT EXISTS idx_tx_payee         ON transactions(payee_id);
 CREATE INDEX IF NOT EXISTS idx_tx_account       ON transactions(account_id);
+
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+  run_id                    TEXT PRIMARY KEY,
+  source                    TEXT NOT NULL,
+  started_at                TEXT,
+  finished_at               TEXT NOT NULL,
+  requested_from            TEXT,
+  requested_to              TEXT,
+  importer_version          TEXT,
+  fetched                   INTEGER,
+  valid                     INTEGER,
+  added                     INTEGER,
+  updated                   INTEGER,
+  quarantined               INTEGER NOT NULL DEFAULT 0,
+  outcome                   TEXT NOT NULL,
+  error_code                TEXT,
+  expected_cadence_seconds  INTEGER,
+  resolved                  INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_pipeline_source_finished ON pipeline_runs(source, finished_at);
+
+CREATE TABLE IF NOT EXISTS data_quality (
+  check_id      TEXT PRIMARY KEY,
+  checked_at    TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  source        TEXT,
+  account_id    TEXT,
+  detail        TEXT,
+  value_cents   INTEGER,
+  resolved      INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS budget_snapshots (
+  month          TEXT NOT NULL,
+  captured_at    TEXT NOT NULL,
+  category_id    TEXT NOT NULL,
+  category_name  TEXT NOT NULL,
+  category_role  TEXT NOT NULL,
+  budgeted_cents INTEGER NOT NULL,
+  spent_cents    INTEGER NOT NULL,
+  balance_cents  INTEGER NOT NULL,
+  carried_cents  INTEGER NOT NULL,
+  PRIMARY KEY (month, captured_at, category_id)
+);
+
+CREATE TABLE IF NOT EXISTS net_worth_snapshots (
+  month        TEXT NOT NULL,
+  captured_at  TEXT NOT NULL,
+  account_id   TEXT NOT NULL,
+  balance_cents INTEGER NOT NULL,
+  PRIMARY KEY (month, captured_at, account_id)
+);
 
 -- Securities holdings (current snapshot, drop+re-insert each db-sync cycle).
 -- Populated from holdings.json that fints-actual-bridge writes on import for
@@ -143,10 +196,66 @@ WHERE account_offbudget = 0
   AND amount_cents > 0
   AND COALESCE(category_is_income, 0) = 1;
 
--- ===== Budget targets =====
--- Per-category monthly budget targets in cents. Populated each db-sync cycle
--- from cli/config/budget.json — drop+insert means the JSON is the source of
--- truth and changes there propagate within 5 minutes.
+DROP VIEW IF EXISTS consumption;
+CREATE VIEW consumption AS
+SELECT * FROM transactions
+WHERE account_offbudget = 0
+  AND transfer_id IS NULL
+  AND category_role IN ('fixed', 'essential', 'discretionary', 'sinking_fund')
+  AND COALESCE(imported_id, '') NOT LIKE 'fints-bridge-opening-balance-%'
+  AND COALESCE(imported_id, '') NOT LIKE 'fints-bridge-depot-revaluation-%';
+
+DROP VIEW IF EXISTS ordinary_income;
+CREATE VIEW ordinary_income AS
+SELECT * FROM transactions
+WHERE account_offbudget = 0
+  AND transfer_id IS NULL
+  AND amount_cents > 0
+  AND category_role = 'income'
+  AND COALESCE(imported_id, '') NOT LIKE 'fints-bridge-opening-balance-%';
+
+DROP VIEW IF EXISTS savings_contributions;
+CREATE VIEW savings_contributions AS
+SELECT -t.amount_cents AS amount_cents, t.*
+FROM transactions t
+JOIN payees p ON p.id = t.payee_id
+JOIN accounts destination ON destination.id = p.transfer_account_id
+WHERE t.account_offbudget = 0
+  AND t.amount_cents < 0
+  AND t.transfer_id IS NOT NULL
+  AND destination.offbudget = 1;
+
+DROP VIEW IF EXISTS review_queue;
+CREATE VIEW review_queue AS
+SELECT * FROM transactions
+WHERE account_offbudget = 0
+  AND transfer_id IS NULL
+  AND (category_id IS NULL OR payee_name IS NULL OR trim(payee_name) = '')
+  AND COALESCE(imported_id, '') NOT LIKE 'fints-bridge-opening-balance-%';
+
+DROP VIEW IF EXISTS finance_trust;
+CREATE VIEW finance_trust AS
+WITH latest_runs AS (
+  SELECT p.* FROM pipeline_runs p
+  WHERE p.finished_at = (SELECT MAX(q.finished_at) FROM pipeline_runs q WHERE q.source = p.source)
+), reasons(reason) AS (
+  SELECT 'stale_source' FROM latest_runs
+   WHERE expected_cadence_seconds IS NOT NULL
+     AND strftime('%s','now') - strftime('%s',finished_at) > expected_cadence_seconds
+  UNION SELECT 'reconciliation_gap' FROM data_quality quality
+   JOIN accounts account ON account.id = quality.account_id AND account.closed = 0
+   WHERE quality.kind = 'reconciliation_gap' AND quality.resolved = 0
+     AND COALESCE(quality.value_cents, 0) != 0
+  UNION SELECT 'unresolved_quarantine' FROM pipeline_runs
+   WHERE quarantined > 0 AND resolved = 0
+  UNION SELECT 'review_queue_exceeded' FROM (SELECT COUNT(*) n FROM review_queue) WHERE n > 10
+)
+SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS trusted,
+       COALESCE(json_group_array(reason) FILTER (WHERE reason IS NOT NULL), '[]') AS reasons
+FROM reasons;
+
+-- Legacy compatibility table for dashboards that have not yet migrated to
+-- budget_snapshots. It is intentionally left empty; Actual is authoritative.
 CREATE TABLE IF NOT EXISTS budgets (
   category_name TEXT PRIMARY KEY,
   monthly_cents INTEGER NOT NULL

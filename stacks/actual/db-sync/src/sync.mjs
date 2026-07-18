@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import * as api from '@actual-app/api';
 import Database from 'better-sqlite3';
 import { detectSubscriptions } from '../../cli/src/commands/subs.mjs';
+import { deriveCategoryRole, validateCategoryGroups } from './semantics.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA_SQL = fs.readFileSync(path.join(HERE, 'schema.sql'), 'utf8');
@@ -27,7 +28,9 @@ export async function buildSnapshot() {
   for (const acct of accounts) {
     balances[acct.id] = await api.getAccountBalance(acct.id);
   }
-  return { accounts, categoryGroups, categories, payees, transactions, balances };
+  const budgetMonths = [];
+  for (const month of await api.getBudgetMonths()) budgetMonths.push(await api.getBudgetMonth(month));
+  return { accounts, categoryGroups, categories, payees, transactions, balances, budgetMonths };
 }
 
 async function readJsonIfExists(p) {
@@ -40,13 +43,39 @@ async function readJsonIfExists(p) {
   }
 }
 
+async function readManifests(directory) {
+  if (!directory) return [];
+  let names;
+  try { names = await fsp.readdir(directory); }
+  catch (error) { if (error?.code === 'ENOENT') return []; throw error; }
+  const manifests = [];
+  for (const name of names.filter((name) => name.endsWith('.json')).sort()) {
+    const value = await readJsonIfExists(path.join(directory, name));
+    if (value?.schema_version === 1 && value.run_id && value.source && value.finished_at) manifests.push(value);
+  }
+  return manifests;
+}
+
+function ensureSchemaMigrations(db) {
+  const columns = db.prepare("SELECT name FROM pragma_table_info('transactions')").pluck().all();
+  if (columns.length > 0 && !columns.includes('category_role')) db.exec('ALTER TABLE transactions ADD COLUMN category_role TEXT');
+}
+
 // Replace the contents of every table in a single transaction. SQLite WAL mode
 // keeps Grafana queries non-blocking against the previous snapshot.
-export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, budgetPath) {
-  const snapshot = await buildSnapshot();
+export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manifestDir, options = {}) {
+  const snapshot = options.snapshot ?? await buildSnapshot();
+  // Semantic validation deliberately happens before opening or modifying the
+  // replica, so a bad Actual category setup leaves the prior file readable.
+  validateCategoryGroups(snapshot.categoryGroups);
   const fintsStatus = await readJsonIfExists(fintsStatusPath);
   const holdingsBlob = await readJsonIfExists(holdingsPath);
-  const budgetBlob = await readJsonIfExists(budgetPath);
+  // During the transition, the fourth argument may still be the retired
+  // budget.json path. Manifests share the FinTS state volume.
+  const effectiveManifestDir = manifestDir?.endsWith('.json')
+    ? path.join(path.dirname(fintsStatusPath), 'import-runs')
+    : manifestDir;
+  const manifests = await readManifests(effectiveManifestDir);
 
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
@@ -56,9 +85,11 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, budget
   // briefly block during our transaction (~2-3s every 5 min). Acceptable.
   db.pragma('journal_mode = DELETE');
   db.pragma('synchronous = NORMAL');
+  ensureSchemaMigrations(db);
   db.exec(SCHEMA_SQL);
 
   const groupNameById = new Map(snapshot.categoryGroups.map((g) => [g.id, g.name]));
+  const groupById = new Map(snapshot.categoryGroups.map((g) => [g.id, g]));
   const catById = new Map(snapshot.categories.map((c) => [c.id, c]));
   const payeeNameById = new Map(snapshot.payees.map((p) => [p.id, p.name]));
 
@@ -75,10 +106,10 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, budget
     INSERT INTO transactions (
       id, date, account_id, account_name, account_offbudget,
       amount_cents, payee_id, payee_name,
-      category_id, category_name, category_group_name, category_is_income,
+      category_id, category_name, category_group_name, category_role, category_is_income,
       notes, cleared, reconciled, transfer_id, is_transfer, imported_id,
       year, month, ymd_unix
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSub = db.prepare(`
     INSERT INTO subscriptions (
@@ -102,9 +133,15 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, budget
       snapshot_iso, snapshot_unix, depot_account_id, isin, name, pieces, total_value_cents
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
-  const insertBudget = db.prepare(
-    'INSERT INTO budgets (category_name, monthly_cents) VALUES (?, ?)',
-  );
+  const insertBudgetSnapshot = db.prepare(`INSERT OR IGNORE INTO budget_snapshots
+    (month,captured_at,category_id,category_name,category_role,budgeted_cents,spent_cents,balance_cents,carried_cents)
+    VALUES (?,?,?,?,?,?,?,?,?)`);
+  const insertNetWorthSnapshot = db.prepare(`INSERT OR IGNORE INTO net_worth_snapshots
+    (month,captured_at,account_id,balance_cents) VALUES (?,?,?,?)`);
+  const insertRun = db.prepare(`INSERT OR REPLACE INTO pipeline_runs
+    (run_id,source,started_at,finished_at,requested_from,requested_to,importer_version,
+     fetched,valid,added,updated,quarantined,outcome,error_code,expected_cadence_seconds,resolved)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const accountNameById = new Map(snapshot.accounts.map((a) => [a.id, a.name]));
 
   const txn = db.transaction(() => {
@@ -139,6 +176,9 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, budget
         t.category ?? null,
         cat?.name ?? null,
         cat ? (groupNameById.get(cat.group_id) ?? null) : null,
+        cat && !groupById.get(cat.group_id)?.hidden
+          ? deriveCategoryRole(groupNameById.get(cat.group_id))
+          : null,
         cat?.is_income ? 1 : 0,
         t.notes ?? null,
         t.cleared ? 1 : 0,
@@ -197,13 +237,40 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, budget
       }
     }
 
-    // Budget targets from cli/config/budget.json. Drop+insert each cycle so
-    // edits to the JSON propagate immediately on next sync.
-    if (budgetBlob?.monthly_budgets) {
-      for (const [name, eur] of Object.entries(budgetBlob.monthly_budgets)) {
-        if (typeof eur !== 'number') continue;
-        insertBudget.run(name, Math.round(eur * 100));
+    const capturedAt = (options.now ?? new Date()).toISOString();
+    for (const monthData of snapshot.budgetMonths ?? []) {
+      for (const group of monthData.categoryGroups ?? []) {
+        if (group.is_income || group.hidden) continue;
+        const role = deriveCategoryRole(group.name);
+        for (const category of group.categories ?? []) {
+          insertBudgetSnapshot.run(
+            monthData.month, capturedAt, category.id, category.name, role,
+            category.budgeted ?? 0, category.spent ?? 0, category.balance ?? 0,
+            typeof category.carryover === 'number'
+              ? category.carryover
+              : category.carryover ? (category.balance ?? 0) - (category.budgeted ?? 0) - (category.spent ?? 0) : 0,
+          );
+        }
       }
+    }
+    const captureMonth = capturedAt.slice(0, 7);
+    for (const account of snapshot.accounts) {
+      insertNetWorthSnapshot.run(captureMonth, capturedAt, account.id, snapshot.balances[account.id] ?? 0);
+    }
+
+    for (const manifest of manifests) {
+      const totals = (manifest.accounts ?? []).reduce((sum, account) => {
+        for (const key of ['fetched', 'valid', 'added', 'updated', 'quarantined']) sum[key] += Number(account[key]) || 0;
+        return sum;
+      }, { fetched: 0, valid: 0, added: 0, updated: 0, quarantined: 0 });
+      insertRun.run(
+        manifest.run_id, manifest.source, manifest.started_at ?? null, manifest.finished_at,
+        manifest.requested_range?.from ?? null, manifest.requested_range?.to ?? null,
+        manifest.importer_version ?? null, totals.fetched, totals.valid, totals.added, totals.updated,
+        totals.quarantined, manifest.outcome, manifest.error_code ?? null,
+        options.expectedCadenceSeconds?.[manifest.source] ?? null,
+        totals.quarantined === 0 ? 1 : 0,
+      );
     }
   });
   txn();
@@ -214,7 +281,7 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, budget
     subscriptions: db.prepare('SELECT COUNT(*) AS n FROM subscriptions').get().n,
     holdings: db.prepare('SELECT COUNT(*) AS n FROM holdings').get().n,
     holdings_history: db.prepare('SELECT COUNT(*) AS n FROM holdings_history').get().n,
-    budgets: db.prepare('SELECT COUNT(*) AS n FROM budgets').get().n,
+    budgets: db.prepare('SELECT COUNT(*) AS n FROM budget_snapshots').get().n,
   };
   db.close();
   // Make sure Grafana (UID 472) can read regardless of who wrote the file.
