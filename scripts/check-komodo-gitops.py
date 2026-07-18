@@ -98,6 +98,25 @@ def main() -> int:
         if config.get("schedule") != "every 5 minutes" or config.get("schedule_enabled") is not True:
             errors.append("proxy refresh schedule must be enabled every 5 minutes")
 
+    monitoring_refresh = next(
+        (p for p in procedures if p["name"] == "GitOps - Refresh monitoring dashboards"), None
+    )
+    expected_monitoring_execution = {"type": "DeployStack", "params": {"stack": "monitoring"}}
+    if monitoring_refresh is None:
+        errors.append("missing GitOps - Refresh monitoring dashboards procedure")
+    else:
+        config = monitoring_refresh["config"]
+        execution = config["stage"][0]["executions"][0]["execution"]
+        if execution != expected_monitoring_execution:
+            errors.append(f"unexpected monitoring refresh execution: {execution!r}")
+        if config.get("schedule") != "every 5 minutes" or config.get("schedule_enabled") is not True:
+            errors.append("monitoring refresh schedule must be enabled every 5 minutes")
+
+    finance_health = next((p for p in procedures if p["name"] == "Actual - Finance health"), None)
+    health_command = finance_health["config"]["stage"][0]["executions"][0]["execution"]["params"].get("command", []) if finance_health else []
+    if health_command[1:3] != ["/app/cli/bin/actual.mjs", "finance-health"]:
+        errors.append("Actual - Finance health must call the shared typed CLI")
+
     caddyfile = (ROOT / "stacks" / "proxy" / "caddy" / "Caddyfile").read_text()
     proxy_compose = (ROOT / "stacks" / "proxy" / "docker-compose.yml").read_text()
     beerbot_compose = (ROOT / "stacks" / "beerbot" / "docker-compose.yml").read_text()

@@ -55,6 +55,23 @@ executions = [
   { execution.type = "GlobalAutoUpdate", execution.params.skip_auto_update = false, enabled = true },
 ]
 
+# Dashboard JSON is an auxiliary bind mount and does not participate in
+# Komodo's Compose-content change detector. An explicit idempotent deployment
+# after Git sync reliably reloads provisioned dashboards.
+[[procedure]]
+name = "GitOps - Refresh monitoring dashboards"
+description = "Deploys the monitoring stack every five minutes so provisioned dashboard and datasource changes from Git become active."
+tags = ["system", "gitops", "monitoring"]
+config.schedule = "every 5 minutes"
+config.schedule_enabled = true
+
+[[procedure.config.stage]]
+name = "Deploy monitoring idempotently"
+enabled = true
+executions = [
+  { execution.type = "DeployStack", execution.params.stack = "monitoring", enabled = true },
+]
+
 [[procedure]]
 name = "Actual - Sync UmweltBank now"
 description = "Runs the one-shot UmweltBank FinTS fetch/import job. This is intentionally manual to avoid repeated bank logins/SCA prompts."
@@ -100,5 +117,5 @@ tags = ["prod", "um870", "actual", "audit", "read-only"]
 name = "Read finance health"
 enabled = true
 executions = [
-  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "actual_db_sync", execution.params.command = ["node", "--input-type=module", "-e", "import Database from 'better-sqlite3'; const db=new Database('/db/actual.sqlite',{readonly:true,fileMustExist:true}); try { const trust=db.prepare('SELECT trusted,reasons FROM finance_trust').get(); const review=db.prepare('SELECT COUNT(*) AS count FROM review_queue').get(); const sources=db.prepare(\"WITH latest AS (SELECT source,MAX(finished_at) AS finished_at FROM pipeline_runs GROUP BY source) SELECT e.source,l.finished_at,CASE WHEN l.finished_at IS NULL THEN 'MISSING' WHEN e.expected_cadence_seconds IS NULL THEN 'NO_CADENCE' WHEN strftime('%s','now')-strftime('%s',l.finished_at)>e.expected_cadence_seconds THEN 'STALE' ELSE 'CURRENT' END AS status FROM expected_sources e LEFT JOIN latest l ON l.source=e.source ORDER BY e.source\").all(); console.log(JSON.stringify({finance_trust:trust,review_queue:review.count,sources},null,2)); } finally { db.close(); }"], execution.params.workdir = "/app/db-sync", execution.params.no_tty = true, execution.params.no_deps = true, enabled = true },
+  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "actual_db_sync", execution.params.command = ["node", "/app/cli/bin/actual.mjs", "finance-health", "--snapshot=/db/actual.sqlite", "--json"], execution.params.workdir = "/app/cli", execution.params.no_tty = true, execution.params.no_deps = true, enabled = true },
 ]

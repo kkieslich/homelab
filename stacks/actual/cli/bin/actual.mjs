@@ -12,6 +12,9 @@ const COMMANDS = {
   'audit-imports':  'Audit import IDs, duplicate candidates, payees, and categories (read-only).',
   'rule-candidates': 'Suggest conservative native Actual rules from reviewed history (read-only).',
   'month-close':     'Validate and capture immutable month-end finance snapshots.',
+  'finance-health':  'Report canonical account-grain finance readiness (read-only).',
+  'duplicate-resolution': 'Resolve one current duplicate candidate with typed audit evidence.',
+  'review-annotation': 'Annotate one month-scoped review item with a typed decision.',
   categorize:       'Apply rule-based categorization (config/categorization.json).',
   'fixup-transfers': 'Link orphan transfer txs (payee=transfer-payee but no transfer_id) by creating their missing mirrors.',
 };

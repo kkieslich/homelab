@@ -103,6 +103,13 @@ function ensureSchemaMigrations(db) {
   }
   const expected = db.prepare("SELECT name FROM pragma_table_info('expected_sources')").pluck().all();
   if (expected.length > 0 && !expected.includes('account_id')) db.exec('DROP TABLE expected_sources');
+  const annotations = db.prepare("SELECT name FROM pragma_table_info('review_queue_annotations')").pluck().all();
+  // SQLite cannot add CHECK constraints with ALTER TABLE. Existing replicas get
+  // the reviewer column safely; all writes still pass strict CLI validation.
+  // Fresh replicas receive the schema-level timestamp/reviewer CHECKs.
+  if (annotations.length > 0 && !annotations.includes('reviewer')) {
+    db.exec("ALTER TABLE review_queue_annotations ADD COLUMN reviewer TEXT NOT NULL DEFAULT 'legacy'");
+  }
 }
 
 function scheduleRole(name) {

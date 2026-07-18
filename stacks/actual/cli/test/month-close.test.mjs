@@ -80,6 +80,14 @@ test('month close defaults to dry-run and apply writes both snapshots idempotent
   db.close();
 });
 
+test('month close rejects empty, malformed, and non-UTC capture timestamps', async () => {
+  const dbPath = await fixture();
+  for (const capturedAt of ['', 'not-a-date', '2026-07-01T09:00:00+02:00']) {
+    assert.throws(() => captureMonthClose({ dbPath, month: '2026-06', capturedAt,
+      now: new Date('2026-07-01T09:00:00Z') }), /captured-at.*UTC/i);
+  }
+});
+
 test('apply refuses an open month and unannotated review items but accepts explicit annotations', async () => {
   const open = await fixture();
   assert.throws(() => captureMonthClose({
@@ -114,7 +122,8 @@ test('month close scopes review items and annotations to the requested month', a
     (id,date,account_id,account_name,account_offbudget,amount_cents,category_is_income,cleared,
      reconciled,is_transfer,imported_id,year,month,ymd_unix)
     VALUES ('later','2026-07-02','checking','Checking',0,-1000,0,1,0,0,'bank:later',2026,'2026-07',1782950400)`).run();
-  db.prepare(`INSERT INTO review_queue_annotations VALUES
+  db.prepare(`INSERT INTO review_queue_annotations
+    (transaction_id,month,decision,annotated_at,note) VALUES
     ('later','2026-06','accepted_for_close','2026-07-02T00:00:00Z','wrong month')`).run();
   db.close();
   assert.equal(captureMonthClose({ dbPath, month: '2026-06', apply: true,

@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { parseArgs } from '../lib/args.mjs';
+import { requireUtcInstant } from '../lib/validation.mjs';
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -46,6 +47,7 @@ export function captureMonthClose({ dbPath, month, apply = false, capturedAt, no
   if (!dbPath) throw new Error('A snapshot SQLite path is required');
   if (!isClosed(month, now)) throw new Error(`Month ${month} is not closed`);
   const capture = capturedAt ?? now.toISOString();
+  requireUtcInstant(capture, 'captured-at');
   const db = new Database(dbPath, { readonly: !apply });
   try {
     const trust = db.prepare('SELECT trusted,reasons FROM finance_trust').get();

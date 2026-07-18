@@ -64,8 +64,9 @@ Komodo provides one guarded path per interactive bank:
 - **Actual - Sync Baader now** restarts the persistent daemon when its session
   has expired. It is not a second Baader importer.
 - **Actual - Audit imports** runs the live API audit read-only.
-- **Actual - Finance health** reads finance trust, review-queue size, and source
-  freshness from SQLite read-only.
+- **Actual - Finance health** calls the shared `finance-health` CLI against
+  SQLite read-only. It reports trust reasons and every expected account's latest
+  attempt, latest valid success, coverage, finish age, and readiness gates.
 
 Do not overlap bank procedures. Do not compensate for a failed guarded import
 with CSV import, the retired date/index importer, or the external categorizer.
@@ -243,6 +244,13 @@ Grafana exposes exactly three downstream views:
 
 All use canonical SQLite models. Grafana is for exploration and diagnosis, not
 categorization, reconciliation, scheduling, or budgeting.
+
+The projection enforces SQLite `DELETE` journal mode, allowing Grafana's
+external `actual_db` volume to be mounted read-only. Dashboard JSON is an
+auxiliary bind mount rather than Compose content, so the scheduled
+**GitOps - Refresh monitoring dashboards** procedure idempotently deploys the
+monitoring stack every five minutes after Git reconciliation. This is the
+supported dashboard deployment path; do not assume Komodo detects JSON changes.
 
 Duplicate candidates are regenerated transactionally from the current Actual
 snapshot with deterministic keys containing the exact candidate membership and

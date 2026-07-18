@@ -39,6 +39,28 @@ data in logs or notes.
 
 ## 2. Work the Actual review queue
 
+### Intentional same-day repeats
+
+The duplicate signal is deliberately fuzzy: two legitimate purchases can share
+account, date, amount, and payee. Compare the exact transaction IDs, bank
+reference, notes, and receipt in Actual. Do not merge when the evidence shows
+two purchases. Resolve only the currently displayed candidate key, first as a
+dry run and then with `--apply`:
+
+```sh
+ssh -t kolja@192.168.1.20
+sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs duplicate-resolution \
+  --snapshot=/db/actual.sqlite --candidate-key=duplicate_candidate:KEY \
+  --resolution=intentional_repeat --note="two separate receipts" \
+  --reviewer=YOUR_NAME --resolved-at=YYYY-MM-DDTHH:MM:SSZ
+```
+
+The supported resolutions are `intentional_repeat`,
+`confirmed_duplicate_merged`, and `not_a_duplicate`. After verifying the dry
+run, repeat with `--apply`. The write is transactional and audited. It refuses
+a stale key or changed evidence; refresh and review again instead of editing
+SQLite directly. An unchanged candidate remains resolved across db-sync.
+
 Open the saved filter for on-budget, non-transfer transactions with a missing
 category/payee, duplicate candidate, or unusual amount.
 

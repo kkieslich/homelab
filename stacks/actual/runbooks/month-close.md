@@ -19,6 +19,20 @@ month. Actual is authoritative; the projection and Grafana validate it.
    `accepted_for_close` annotation for this month; a free-form note is not an
    acceptance decision.
 
+Preview a typed exception from SSH (omit `--apply`), then repeat with `--apply`
+only after checking the transaction in Actual:
+
+```sh
+sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs review-annotation \
+  --snapshot=/db/actual.sqlite --transaction-id=ACTUAL_ID --month=YYYY-MM \
+  --decision=accepted_for_close --note="why this can remain open" \
+  --reviewer=YOUR_NAME --annotated-at=YYYY-MM-DDTHH:MM:SSZ
+```
+
+The timestamp must be non-empty UTC ISO format. On upgraded replicas SQLite
+cannot retrofit the fresh-install timestamp `CHECK` constraint, so the command
+enforces the same validation before every write.
+
 Stop for stale/missing imports, quarantine, reconciliation gaps, invalid
 category roles, or material unexplained transactions. `finance_trust=false`
 suppresses headline analytics intentionally.

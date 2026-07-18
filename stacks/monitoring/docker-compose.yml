@@ -31,10 +31,9 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       # SQLite file populated by stacks/actual/actual_db_sync — the same named
       # volume that stack owns, referenced here as external (actual_db). Mounted
-      # read-write (not :ro) because WAL mode requires every reader to create the
-      # -shm sidecar file; :ro blocks that and SQLite returns SQLITE_CANTOPEN.
-      # Grafana never writes through the SQLite datasource plugin.
-      - actual-db:/actual-db
+      # actual_db_sync enforces DELETE journal mode, so readers need no WAL/SHM
+      # sidecars and the analytical replica can remain genuinely read-only.
+      - actual-db:/actual-db:ro
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -126,7 +125,7 @@ services:
 volumes:
   prometheus:
   grafana:
-  # Owned by the actual stack (its `db` volume); mounted here read-write so
+  # Owned by the actual stack (its `db` volume); mounted here read-only so
   # Grafana's SQLite datasource can read the actual_db_sync read-replica.
   actual-db:
     external: true

@@ -215,9 +215,19 @@ CREATE TABLE IF NOT EXISTS review_queue_annotations (
   transaction_id TEXT NOT NULL,
   month          TEXT NOT NULL,
   decision       TEXT NOT NULL CHECK (decision = 'accepted_for_close'),
-  annotated_at   TEXT NOT NULL,
+  annotated_at   TEXT NOT NULL CHECK (length(trim(annotated_at)) > 0 AND annotated_at GLOB '????-??-??T??:??:??*Z'),
   note           TEXT NOT NULL CHECK (length(trim(note)) > 0),
+  reviewer       TEXT NOT NULL DEFAULT 'legacy' CHECK (length(trim(reviewer)) > 0),
   PRIMARY KEY (transaction_id, month)
+);
+
+CREATE TABLE IF NOT EXISTS duplicate_resolution_audit (
+  candidate_key    TEXT PRIMARY KEY,
+  candidate_detail TEXT NOT NULL,
+  resolution       TEXT NOT NULL CHECK (resolution IN ('intentional_repeat','confirmed_duplicate_merged','not_a_duplicate')),
+  note             TEXT NOT NULL CHECK (length(trim(note)) > 0),
+  reviewer         TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
+  resolved_at      TEXT NOT NULL CHECK (length(trim(resolved_at)) > 0 AND resolved_at GLOB '????-??-??T??:??:??*Z')
 );
 
 -- Securities holdings (current snapshot, drop+re-insert each db-sync cycle).

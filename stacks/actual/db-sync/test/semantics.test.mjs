@@ -517,6 +517,18 @@ test('sync persists authoritative schedules and deterministic duplicate candidat
   db.close();
 });
 
+test('projection uses DELETE journal and remains readable through a read-only connection', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'actual-readonly-'));
+  const dbPath = path.join(dir, 'actual.sqlite');
+  const snapshot = { accounts: [], categoryGroups: [], categories: [], payees: [], transactions: [],
+    balances: {}, balanceAsOf: {}, budgetMonths: [], schedules: [], schedulesFetchedAt: '2026-07-18T10:00:00Z' };
+  await syncToSqlite(dbPath, null, null, null, null, { snapshot, expectedSources: [], now: new Date('2026-07-18T10:00:00Z') });
+  const reader = new Database(dbPath, { readonly: true, fileMustExist: true });
+  assert.equal(reader.pragma('journal_mode', { simple: true }), 'delete');
+  assert.equal(reader.prepare('SELECT COUNT(*) FROM finance_trust').pluck().get(), 1);
+  reader.close();
+});
+
 test('unclassified or missing schedule projection fails finance trust closed', () => {
   const db = projection();
   db.prepare('DELETE FROM schedule_projection').run();
