@@ -1,0 +1,27 @@
+{
+  "bank": {
+    "key": "fixture-bank"
+  },
+  "accounts": [
+    {
+      "iban": "DE00000000000000000000",
+      "type": "giro",
+      "transactions": [
+        {
+          "date": "2026-01-15",
+          "amount_cents": -1000,
+          "payee_name": "TRANSFER TEST ONE",
+          "imported_id": "GIRO-001",
+          "status": "BOOK"
+        },
+        {
+          "date": "2026-01-15",
+          "amount_cents": -1000,
+          "payee_name": "TRANSFER TEST TWO",
+          "imported_id": "GIRO-002",
+          "status": "BOOK"
+        }
+      ]
+    }
+  ]
+}

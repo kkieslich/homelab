@@ -1,0 +1,34 @@
+{
+  "bank": {
+    "key": "fixture-bank"
+  },
+  "accounts": [
+    {
+      "iban": "DE00000000000000000000",
+      "type": "card",
+      "transactions": [
+        {
+          "date": "2026-01-10",
+          "amount_cents": -2690,
+          "payee_name": "REWE TESTMARKT",
+          "imported_id": "CARD-001",
+          "status": "BOOK"
+        },
+        {
+          "date": "2026-01-11",
+          "amount_cents": -2300,
+          "payee_name": "PAYPAL *EXAMPLE",
+          "imported_id": "CARD-002",
+          "status": "BOOK"
+        },
+        {
+          "date": "2026-01-12",
+          "amount_cents": -2000,
+          "payee_name": "22207136",
+          "imported_id": "CARD-003",
+          "status": "BOOK"
+        }
+      ]
+    }
+  ]
+}

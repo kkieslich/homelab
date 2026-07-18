@@ -8,7 +8,8 @@
     "actual-import": "./bin/import.mjs"
   },
   "scripts": {
-    "import": "node bin/import.mjs"
+    "import": "node bin/import.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@actual-app/api": "^26.4.0",
