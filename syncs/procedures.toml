@@ -64,14 +64,7 @@ tags = ["prod", "um870", "actual", "manual"]
 name = "Run UmweltBank import"
 enabled = true
 executions = [
-  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "fints_sync_umwelt", enabled = true },
-]
-
-[[procedure.config.stage]]
-name = "Refresh Actual SQLite snapshot"
-enabled = true
-executions = [
-  { execution.type = "RestartStack", execution.params.stack = "actual", execution.params.services = ["actual_db_sync"], enabled = true },
+  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "fints_sync_umwelt", execution.params.no_tty = true, enabled = true },
 ]
 
 [[procedure]]
@@ -84,4 +77,28 @@ name = "Restart Baader daemon"
 enabled = true
 executions = [
   { execution.type = "RestartStack", execution.params.stack = "actual", execution.params.services = ["fints_daemon_baader"], enabled = true },
+]
+
+[[procedure]]
+name = "Actual - Audit imports"
+description = "Read-only audit of imported IDs, duplicate candidates, legacy IDs, missing payees, and uncategorized transactions. Makes no Actual changes."
+tags = ["prod", "um870", "actual", "audit", "read-only"]
+
+[[procedure.config.stage]]
+name = "Run read-only import audit"
+enabled = true
+executions = [
+  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "actual_db_sync", execution.params.command = ["node", "/app/cli/bin/actual.mjs", "audit-imports", "--json"], execution.params.workdir = "/app/cli", execution.params.no_tty = true, execution.params.no_deps = true, enabled = true },
+]
+
+[[procedure]]
+name = "Actual - Finance health"
+description = "Read-only finance-trust, review-queue, and source-freshness report from the analytical SQLite projection. Makes no Actual changes."
+tags = ["prod", "um870", "actual", "audit", "read-only"]
+
+[[procedure.config.stage]]
+name = "Read finance health"
+enabled = true
+executions = [
+  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "actual_db_sync", execution.params.command = ["node", "--input-type=module", "-e", "import Database from 'better-sqlite3'; const db=new Database('/db/actual.sqlite',{readonly:true,fileMustExist:true}); try { const trust=db.prepare('SELECT trusted,reasons FROM finance_trust').get(); const review=db.prepare('SELECT COUNT(*) AS count FROM review_queue').get(); const sources=db.prepare(\"WITH latest AS (SELECT source,MAX(finished_at) AS finished_at FROM pipeline_runs GROUP BY source) SELECT e.source,l.finished_at,CASE WHEN l.finished_at IS NULL THEN 'MISSING' WHEN e.expected_cadence_seconds IS NULL THEN 'NO_CADENCE' WHEN strftime('%s','now')-strftime('%s',l.finished_at)>e.expected_cadence_seconds THEN 'STALE' ELSE 'CURRENT' END AS status FROM expected_sources e LEFT JOIN latest l ON l.source=e.source ORDER BY e.source\").all(); console.log(JSON.stringify({finance_trust:trust,review_queue:review.count,sources},null,2)); } finally { db.close(); }"], execution.params.workdir = "/app/db-sync", execution.params.no_tty = true, execution.params.no_deps = true, enabled = true },
 ]
