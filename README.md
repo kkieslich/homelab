@@ -41,5 +41,30 @@ syncs/      Komodo GitOps resource definitions (TOML)
 
 A Komodo **Resource Sync** points at this repo with
 `resource_path = ["syncs/stacks.toml", "syncs/variables.toml", "syncs/procedures.toml"]`.
-Push to `main` → Komodo reconciles (diff shown in the UI; managed mode can
-auto-apply).
+
+The scheduled Komodo procedure **GitOps - Reconcile homelab** runs every five
+minutes. It fetches `main`, applies the resource definitions, and deploys stacks
+whose desired Git state changed (`deploy = true`). This deliberately uses
+internal polling rather than exposing Komodo's `/listener` endpoint to GitHub.
+No UI pull, sync, or redeploy action is required; expected worst-case Git rollout
+latency is about five minutes plus deployment time.
+
+The separate **Global Auto Update** procedure runs every 15 minutes. Registry-
+backed stacks opt into digest polling and automatic rollout in
+`syncs/stacks.toml`. Stateful BeerBot PostgreSQL/MinIO services and locally built
+images are excluded from unattended image changes.
+
+`managed` mode is not required for this flow. In Komodo it controls writing UI
+edits back to a single sync file, not whether remote Git changes are applied.
+
+### Inspecting and recovering reconciliation
+
+Check the latest **GitOps - Reconcile homelab** and **Global Auto Update** runs
+in Komodo's execution history. A successful `RunSync` records the scheduler as
+operator and advances each affected stack's `deployed_hash` to `latest_hash`.
+
+If a scheduled run fails, fix the reported clone, compose, registry, or
+pre-deploy error and execute the same procedure through the Komodo API/CLI. Do
+not manually edit the checked-out repositories under
+`/var/lib/komodo-periphery/stacks`; the next reconciliation treats `main` as the
+source of truth.

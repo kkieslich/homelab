@@ -1,10 +1,28 @@
 # Komodo procedures, applied by the homelab Resource Sync.
 #
+# GitHub cannot reach the LAN-only Komodo listener, so reconcile desired state
+# internally. RunSync fetches main, applies changed TOML resources, and deploys
+# repo-backed stacks declared with `deploy = true` when their desired state is
+# newer than the running deployment.
+[[procedure]]
+name = "GitOps - Reconcile homelab"
+description = "Fetches main, applies declarative resources, and deploys stacks whose desired state changed."
+tags = ["system", "gitops"]
+config.schedule = "every 5 minutes"
+config.schedule_enabled = true
+
+[[procedure.config.stage]]
+name = "Apply desired state"
+enabled = true
+executions = [
+  { execution.type = "RunSync", execution.params.sync = "homelab", enabled = true },
+]
+
 # Declaring the seeded "Global Auto Update" here makes its 15-minute cadence
 # version-controlled. It runs the GlobalAutoUpdate job, which pulls the latest
-# image for every stack flagged poll_for_updates/auto_update (currently beerbot
-# and music-assistant) and redeploys the ones whose digest changed — so a CI
-# image push rolls out within ~15 min. Without this file a rebuilt Komodo would
+# image for every registry-backed stack flagged poll_for_updates/auto_update
+# and redeploys the services whose digest changed. Stateful BeerBot storage
+# services and locally built images are excluded. Without this file Komodo would
 # revert to the seeded default (daily at 03:00).
 [[procedure]]
 name = "Global Auto Update"

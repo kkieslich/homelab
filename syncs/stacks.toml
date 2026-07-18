@@ -12,6 +12,7 @@
 
 [[stack]]
 name = "proxy"
+deploy = true
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -20,9 +21,12 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/proxy"
 file_paths = ["docker-compose.yml"]
+poll_for_updates = true
+auto_update = true
 
 [[stack]]
 name = "mqtt"
+deploy = true
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -31,9 +35,12 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/mqtt"
 file_paths = ["docker-compose.yml"]
+poll_for_updates = true
+auto_update = true
 
 [[stack]]
 name = "home-assistant"
+deploy = true
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -42,9 +49,12 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/home-assistant"
 file_paths = ["docker-compose.yml"]
+poll_for_updates = true
+auto_update = true
 
 [[stack]]
 name = "music-assistant"
+deploy = true
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -61,6 +71,7 @@ auto_update = true
 
 [[stack]]
 name = "ledfx"
+deploy = true
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -69,9 +80,12 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/ledfx"
 file_paths = ["docker-compose.yaml"]
+poll_for_updates = true
+auto_update = true
 
 [[stack]]
 name = "monitoring"
+deploy = true
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -80,9 +94,12 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/monitoring"
 file_paths = ["docker-compose.yml"]
+poll_for_updates = true
+auto_update = true
 
 [[stack]]
 name = "actual"
+deploy = true
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -91,6 +108,11 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/actual"
 file_paths = ["docker-compose.yml"]
+poll_for_updates = true
+auto_update = true
+# actual_db_sync is built from this repository and has no remote registry
+# digest. Git reconciliation rebuilds it when its source changes.
+auto_update_skip_services = ["actual_db_sync"]
 # Decrypt the env secret (enc.env -> .env) and the fints banks config
 # (banks.toml.enc -> banks.toml) with the host age key just before compose runs.
 [stack.config.pre_deploy]
@@ -103,6 +125,7 @@ command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d
 # private: add a registry account (PAT read:packages) in Komodo, or make public.
 [[stack]]
 name = "beerbot"
+deploy = true
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -122,6 +145,12 @@ registry_account = "kkieslich"
 # are untouched). Poll cadence = Core's default KOMODO_POLL_RATE.
 poll_for_updates = true
 auto_update = true
+# Keep stateful data services and their matching init jobs out of unattended
+# digest rollouts. Application and identity images still update automatically.
+auto_update_skip_services = ["beerbot-db", "beerbot-db-init", "beerbot-minio", "beerbot-minio-init"]
+# Successful init/provision jobs are expected to exit and must not make the
+# steady-state stack appear unhealthy.
+ignore_services = ["beerbot-db-init", "beerbot-keycloak-config", "beerbot-minio-init", "beerbot-provision"]
 # Deploy-time secret decryption: decrypt the sops-encrypted enc.env in this repo
 # to a gitignored ./.env (which every service reads via env_file) using the host
 # age key, just before compose runs. Also decrypt fcm-api.json.enc → ./fcm-api.json
@@ -142,6 +171,7 @@ command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d
 # (local build); no secrets.
 [[stack]]
 name = "sendspin"
+deploy = true
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
