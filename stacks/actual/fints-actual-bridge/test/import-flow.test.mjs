@@ -84,6 +84,71 @@ test('sanitizes malicious requested range strings in success and failure manifes
   }
 });
 
+test('records the real daemon banks window in the manifest', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const daemonPayload = {
+    fetched_at: '2026-07-18T10:00:00Z',
+    banks: [{
+      bank: { key: 'fixture' },
+      window: { start: '2026-06-18', end: '2026-07-18' },
+      accounts: [{ iban: 'SECRET-IBAN', transactions: [transaction] }],
+    }],
+  };
+  const manifest = await runImport({
+    payload: daemonPayload, config, registry,
+    actualApi: { importTransactions: async () => ({ added: [], updated: [] }) },
+    manifestDir,
+  });
+  assert.deepEqual(manifest.requested_range, { from: '2026-06-18', to: '2026-07-18' });
+});
+
+test('rejects conflicting daemon bank windows before calling Actual', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  let calls = 0;
+  const conflicting = {
+    banks: [
+      { bank: { key: 'fixture' }, window: { start: '2026-06-18', end: '2026-07-18' }, accounts: [{ iban: 'SECRET-IBAN', transactions: [transaction] }] },
+      { bank: { key: 'fixture' }, window: { start: '2026-06-17', end: '2026-07-18' }, accounts: [{ iban: 'SECRET-IBAN', transactions: [transaction] }] },
+    ],
+  };
+  await assert.rejects(() => runImport({
+    payload: conflicting, config, registry,
+    actualApi: { importTransactions: async () => { calls += 1; return {}; } },
+    manifestDir,
+  }), /validation failed/i);
+  assert.equal(calls, 0);
+  const [manifest] = await manifestsIn(manifestDir);
+  assert.equal(manifest.outcome, 'failed');
+  assert.equal(manifest.error_code, 'VALIDATION_FAILED');
+  assert.deepEqual(manifest.requested_range, { from: null, to: null });
+});
+
+test('keeps a missing single-bank window privacy-safe and explicit', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const missing = { banks: [{ bank: { key: 'fixture' }, accounts: [{ iban: 'SECRET-IBAN', transactions: [transaction] }] }] };
+  const manifest = await runImport({
+    payload: missing, config, registry,
+    actualApi: { importTransactions: async () => ({ added: [], updated: [] }) },
+    manifestDir,
+  });
+  assert.deepEqual(manifest.requested_range, { from: null, to: null });
+});
+
+test('rejects a missing window in a multi-bank daemon payload', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const ambiguous = {
+    banks: [
+      { bank: { key: 'fixture' }, window: { start: '2026-06-18', end: '2026-07-18' }, accounts: [] },
+      { bank: { key: 'fixture' }, accounts: [] },
+    ],
+  };
+  await assert.rejects(() => runImport({
+    payload: ambiguous, config, registry, actualApi: {}, manifestDir,
+  }), /validation failed/i);
+  const [manifest] = await manifestsIn(manifestDir);
+  assert.deepEqual(manifest.requested_range, { from: null, to: null });
+});
+
 test('validation failure makes no API calls and writes no sensitive fields', async () => {
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   let calls = 0;

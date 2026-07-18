@@ -13,7 +13,8 @@ place to change finance data. Grafana and SQLite are read-only checks.
 2. Run **Actual - Sync UmweltBank now** and wait for completion.
 3. Inspect the latest privacy-safe run manifest with the exact read-only command
    in [the README](../README.md#inspect-the-latest-bank-manifest), using
-   `MANIFEST_SOURCE=fints-umwelt`. Compare its account counts with the last
+   `manifest_source=fints-umwelt` and `manifest_outcome=any`. Compare its account
+   counts with the last
    successful manifest for the same requested window plus known new bank
    postings. Stop for failure, quarantine, unexpected zero data, an account
    appearing/disappearing, or an unexplained count change.
@@ -28,7 +29,7 @@ place to change finance data. Grafana and SQLite are read-only checks.
 
    Type the TAN and press Enter. Detach with Ctrl-p, Ctrl-q. Never press Ctrl-c.
    Then inspect `sudo docker logs --tail 100 fints_daemon_baader` and run the
-   manifest command with `MANIFEST_SOURCE=fints-fnz`.
+   manifest command with `manifest_source=fints-fnz`.
 6. Run **Actual - Audit imports** and **Actual - Finance health**. Both are
    read-only.
 

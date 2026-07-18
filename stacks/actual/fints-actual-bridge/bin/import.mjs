@@ -33,11 +33,30 @@ function accountMapping(config, bankKey, account) {
 }
 
 function requestedRange(payload) {
-  const range = payload.requested_range ?? payload;
-  return {
-    from: safeIsoDate(range.from ?? range.start ?? payload.date_from),
-    to: safeIsoDate(range.to ?? range.end ?? payload.date_to),
-  };
+  const explicit = payload.requested_range != null
+    || payload.from != null || payload.start != null || payload.date_from != null
+    || payload.to != null || payload.end != null || payload.date_to != null;
+  if (explicit) {
+    const range = payload.requested_range ?? payload;
+    return {
+      from: safeIsoDate(range.from ?? range.start ?? payload.date_from),
+      to: safeIsoDate(range.to ?? range.end ?? payload.date_to),
+    };
+  }
+
+  const banks = Array.isArray(payload.banks) ? payload.banks : [];
+  if (banks.length === 0) return { from: null, to: null };
+  const ranges = banks.map(({ window } = {}) => ({
+    from: safeIsoDate(window?.start),
+    to: safeIsoDate(window?.end),
+  }));
+  if (banks.length === 1) return ranges[0];
+  if (ranges.some(({ from, to }) => !from || !to)) throw new Error('multiple bank windows must be complete');
+  const identity = `${ranges[0].from}\u0000${ranges[0].to}`;
+  if (ranges.some(({ from, to }) => `${from}\u0000${to}` !== identity)) {
+    throw new Error('multiple bank windows must match');
+  }
+  return ranges[0];
 }
 
 function safeIsoDate(value) {
@@ -66,8 +85,12 @@ export async function runImport({
   const perBank = new Map();
   const sources = new Set();
   let errorCode = null;
+  let manifestRange = { from: null, to: null };
 
   try {
+    // Resolve the one manifest range before any Actual API write. A multi-bank
+    // payload cannot safely share one range unless every bank window matches.
+    manifestRange = requestedRange(payload);
     const ownership = validateOwnership(registry);
     const banks = bankPayloads(payload);
     if (banks.length === 0) throw new Error('empty payload');
@@ -222,7 +245,7 @@ export async function runImport({
       source: sources.size === 1 ? [...sources][0] : 'multiple',
       importer_version: IMPORTER_VERSION,
       started_at: startedAt, finished_at: instant(now),
-      requested_range: requestedRange(payload), accounts,
+      requested_range: manifestRange, accounts,
       outcome: dryRun ? 'dry_run' : 'success', error_code: null,
     };
     await writeRunManifest(join(manifestDir, `${runId}.json`), manifest);
@@ -233,7 +256,7 @@ export async function runImport({
       source: sources.size === 1 ? [...sources][0] : 'unknown',
       importer_version: IMPORTER_VERSION,
       started_at: startedAt, finished_at: instant(now),
-      requested_range: requestedRange(payload ?? {}), accounts,
+      requested_range: manifestRange, accounts,
       outcome: 'failed', error_code: errorCode ?? 'VALIDATION_FAILED',
     };
     await writeRunManifest(join(manifestDir, `${runId}.json`), manifest);
