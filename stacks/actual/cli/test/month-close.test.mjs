@@ -17,9 +17,12 @@ test('calculates safe to spend including today and unpaid schedules through mont
       { role: 'discretionary', available: 30000 },
       { role: 'flexible_essential', available: -5000 },
     ],
-    schedules: [{ role: 'discretionary', amount: -4000, due: '2026-07-25', paid: false }],
+    schedules: [
+      { role: 'discretionary', amount: -4000, due: '2026-07-25', paid: false },
+      { role: 'discretionary', amount: -1000, due: '2026-06-30', paid: false },
+    ],
     today: '2026-07-18',
-  }), { month_cents: 21000, remaining_days: 14, per_day_cents: 1500 });
+  }), { month_cents: 20000, remaining_days: 14, per_day_cents: 1428 });
 });
 
 test('handles negative availability, paid schedules, month end, and leap years', () => {
@@ -38,6 +41,7 @@ async function fixture({ review = false, annotate = false } = {}) {
   const dbPath = path.join(dir, 'actual.sqlite');
   const db = new Database(dbPath);
   db.exec(SCHEMA);
+  db.prepare(`INSERT INTO schedule_projection (fetched_at,complete,detail) VALUES (datetime('now'),1,'fixture')`).run();
   db.prepare('INSERT INTO accounts VALUES (?,?,?,?,?)').run('checking', 'Checking', 0, 0, 12345);
   db.prepare('INSERT INTO current_budgets VALUES (?,?,?,?,?,?,?,?)')
     .run('2026-06', 'food', 'Food', 'discretionary', 20000, -5000, 15000, 1000);
@@ -95,4 +99,43 @@ test('apply refuses non-review finance trust failures', async () => {
   assert.throws(() => captureMonthClose({
     dbPath, month: '2026-06', apply: true, now: new Date('2026-07-01T09:00:00Z'),
   }), /reconciliation_gap/);
+});
+
+test('month close scopes review items and annotations to the requested month', async () => {
+  const dbPath = await fixture({ review: true, annotate: true });
+  const db = new Database(dbPath);
+  db.prepare(`INSERT INTO transactions
+    (id,date,account_id,account_name,account_offbudget,amount_cents,category_is_income,cleared,
+     reconciled,is_transfer,imported_id,year,month,ymd_unix)
+    VALUES ('later','2026-07-02','checking','Checking',0,-1000,0,1,0,0,'bank:later',2026,'2026-07',1782950400)`).run();
+  db.prepare(`INSERT INTO review_queue_annotations VALUES
+    ('later','2026-06','accepted_for_close','2026-07-02T00:00:00Z','wrong month')`).run();
+  db.close();
+  assert.equal(captureMonthClose({ dbPath, month: '2026-06', apply: true,
+    now: new Date('2026-07-03T00:00:00Z') }).applied, true);
+});
+
+test('month close computes every account balance at requested month-end', async () => {
+  const dbPath = await fixture();
+  const db = new Database(dbPath);
+  db.prepare('UPDATE accounts SET balance_cents=13345 WHERE id=?').run('checking');
+  db.prepare(`INSERT INTO accounts VALUES ('closed','Closed savings',1,1,5000)`).run();
+  db.prepare(`INSERT INTO accounts VALUES ('savings','Savings',1,0,9000)`).run();
+  db.prepare(`INSERT INTO transactions
+    (id,date,account_id,account_name,account_offbudget,amount_cents,category_is_income,cleared,reconciled,is_transfer,imported_id,year,month,ymd_unix)
+    VALUES ('later','2026-07-02','checking','Checking',0,2000,0,1,0,0,'bank:later',2026,'2026-07',1782950400),
+           ('closed-old','2026-06-10','closed','Closed savings',1,7000,0,1,1,0,'bank:old',2026,'2026-06',1781049600),
+           ('closed-later','2026-07-01','closed','Closed savings',1,-2000,0,1,1,0,'bank:closed-later',2026,'2026-07',1782864000),
+           ('transfer-out','2026-07-02','checking','Checking',0,-1000,0,1,1,1,'bank:transfer-out',2026,'2026-07',1782950400),
+           ('transfer-in','2026-07-02','savings','Savings',1,1000,0,1,1,1,'bank:transfer-in',2026,'2026-07',1782950400)`).run();
+  db.close();
+  captureMonthClose({ dbPath, month: '2026-06', capturedAt: '2026-07-03T00:00:00Z', apply: true,
+    now: new Date('2026-07-03T00:00:00Z') });
+  const result = new Database(dbPath, { readonly: true });
+  assert.deepEqual(result.prepare('SELECT account_id,balance_cents FROM net_worth_snapshots ORDER BY account_id').all(), [
+    { account_id: 'checking', balance_cents: 12345 },
+    { account_id: 'closed', balance_cents: 7000 },
+    { account_id: 'savings', balance_cents: 8000 },
+  ]);
+  result.close();
 });

@@ -18,6 +18,7 @@ const CANONICAL = new Set([
   'ordinary_income', 'consumption', 'savings_contributions', 'review_queue',
   'finance_trust', 'holdings', 'holdings_history', 'pipeline_runs',
   'expected_sources', 'data_quality',
+  'safe_to_spend',
 ]);
 
 function queries(value, found = []) {
@@ -107,6 +108,14 @@ test('ships exactly the three Actual-first dashboards with stable UIDs', () => {
     assert.equal(dashboard.uid, uid);
     assert.ok(dashboard.panels.length >= 6, `${name} needs a useful summary-to-detail layout`);
     assert.ok(dashboard.panels.every(panel => panel.description?.trim()), `${name} panels need definitions/freshness context`);
+  }
+});
+
+test('safe-to-spend dashboard panels consume the canonical schedule-aware calculation', () => {
+  const home = JSON.parse(fs.readFileSync(path.join(DASHBOARDS, 'actual-home.json'), 'utf8'));
+  for (const title of ['Safe — month', 'Safe — day']) {
+    assert.match(queries(panelByTitle(home, title)).join('\n'), /safe_to_spend/i);
+    assert.match(panelByTitle(home, title).description, /schedule/i);
   }
 });
 

@@ -120,7 +120,26 @@ CREATE TABLE IF NOT EXISTS data_quality (
   account_id    TEXT,
   detail        TEXT,
   value_cents   INTEGER,
-  resolved      INTEGER NOT NULL DEFAULT 0
+  resolved      INTEGER NOT NULL DEFAULT 0,
+  severity      TEXT NOT NULL DEFAULT 'warning' CHECK (severity IN ('info','warning','error')),
+  producer      TEXT NOT NULL DEFAULT 'manual'
+);
+
+CREATE TABLE IF NOT EXISTS current_schedules (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  role         TEXT,
+  due_date     TEXT,
+  amount_cents INTEGER,
+  completed    INTEGER NOT NULL DEFAULT 0,
+  fetched_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS schedule_projection (
+  fetched_at TEXT PRIMARY KEY,
+  complete   INTEGER NOT NULL CHECK (complete IN (0,1)),
+  detail     TEXT,
+  max_age_seconds INTEGER NOT NULL DEFAULT 900
 );
 
 CREATE TABLE IF NOT EXISTS budget_snapshots (
@@ -264,19 +283,36 @@ WHERE account_offbudget = 0
 
 DROP VIEW IF EXISTS finance_trust;
 CREATE VIEW finance_trust AS
-WITH latest_runs AS (
-  SELECT p.* FROM pipeline_runs p
-  WHERE p.finished_at = (SELECT MAX(q.finished_at) FROM pipeline_runs q WHERE q.source = p.source)
+WITH ranked_attempts AS (
+  SELECT p.*, ROW_NUMBER() OVER (PARTITION BY source ORDER BY finished_at DESC, run_id DESC) AS rank
+  FROM pipeline_runs p
+), latest_attempts AS (
+  SELECT * FROM ranked_attempts WHERE rank=1
+), ranked_successes AS (
+  SELECT p.*, ROW_NUMBER() OVER (PARTITION BY source ORDER BY finished_at DESC, run_id DESC) AS rank
+  FROM pipeline_runs p WHERE outcome='success'
+), latest_successes AS (
+  SELECT * FROM ranked_successes WHERE rank=1
 ), reasons(reason) AS (
   SELECT 'missing_source_run' FROM expected_sources expected
-   LEFT JOIN latest_runs run ON run.source = expected.source
+   LEFT JOIN latest_attempts run ON run.source = expected.source
+   WHERE run.run_id IS NULL
+  UNION SELECT 'missing_successful_source_run' FROM expected_sources expected
+   LEFT JOIN latest_successes run ON run.source = expected.source
    WHERE run.run_id IS NULL
   UNION SELECT 'missing_source_cadence' FROM expected_sources
    WHERE expected_cadence_seconds IS NULL OR expected_cadence_seconds <= 0
-  UNION SELECT 'stale_source' FROM expected_sources expected
-   JOIN latest_runs run ON run.source = expected.source
+  UNION SELECT 'stale_successful_source' FROM expected_sources expected
+   JOIN latest_successes run ON run.source = expected.source
    WHERE expected.expected_cadence_seconds > 0
      AND strftime('%s','now') - strftime('%s',run.finished_at) > expected.expected_cadence_seconds
+  UNION SELECT 'stale_source' FROM expected_sources expected
+   JOIN latest_successes run ON run.source = expected.source
+   WHERE expected.expected_cadence_seconds > 0
+     AND strftime('%s','now') - strftime('%s',run.finished_at) > expected.expected_cadence_seconds
+  UNION SELECT 'latest_source_attempt_failed' FROM latest_attempts WHERE outcome='failed'
+  UNION SELECT 'latest_source_attempt_dry_run' FROM latest_attempts WHERE outcome='dry_run'
+  UNION SELECT 'latest_source_attempt_empty' FROM latest_attempts WHERE outcome IN ('empty','partial_empty')
   UNION SELECT 'reconciliation_gap' FROM data_quality quality
    JOIN accounts account ON account.id = quality.account_id AND account.closed = 0
    WHERE quality.kind = 'reconciliation_gap' AND quality.resolved = 0
@@ -284,10 +320,34 @@ WITH latest_runs AS (
   UNION SELECT 'unresolved_quarantine' FROM pipeline_runs
    WHERE quarantined > 0 AND resolved = 0
   UNION SELECT 'review_queue_exceeded' FROM (SELECT COUNT(*) n FROM review_queue) WHERE n > 10
+  UNION SELECT 'schedule_projection_incomplete' FROM schedule_projection WHERE complete=0
+  UNION SELECT 'missing_schedule_projection' WHERE NOT EXISTS (SELECT 1 FROM schedule_projection)
+  UNION SELECT 'stale_schedule_projection' FROM schedule_projection
+   WHERE strftime('%s','now')-strftime('%s',fetched_at)>max_age_seconds
 )
 SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS trusted,
        COALESCE(json_group_array(reason) FILTER (WHERE reason IS NOT NULL), '[]') AS reasons
 FROM reasons;
+
+DROP VIEW IF EXISTS safe_to_spend;
+CREATE VIEW safe_to_spend AS
+WITH budget AS (
+  SELECT COALESCE(SUM(CASE WHEN category_role='discretionary' AND balance_cents>0 THEN balance_cents ELSE 0 END),0) discretionary,
+         COALESCE(SUM(CASE WHEN category_role='essential' AND balance_cents<0 THEN -balance_cents ELSE 0 END),0) underfunded
+  FROM current_budgets WHERE month=strftime('%Y-%m','now')
+), scheduled AS (
+  SELECT COALESCE(SUM(CASE WHEN role='discretionary' AND completed=0 AND amount_cents<0
+    AND due_date < date('now','start of month','+1 month') THEN -amount_cents ELSE 0 END),0) unpaid
+  FROM current_schedules
+), calculation AS (
+  SELECT discretionary-underfunded-unpaid AS month_cents,
+    CAST(julianday(date('now','start of month','+1 month'))-julianday(date('now')) AS INTEGER) AS remaining_days
+  FROM budget,scheduled
+)
+SELECT month_cents,remaining_days,
+  CAST(MAX(month_cents,0)/MAX(remaining_days,1) AS INTEGER) AS per_day_cents,
+  datetime('now') AS evaluated_at
+FROM calculation;
 
 -- Legacy compatibility table for dashboards that have not yet migrated to
 -- budget_snapshots. It is intentionally left empty; Actual is authoritative.

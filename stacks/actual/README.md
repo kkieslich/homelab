@@ -181,6 +181,15 @@ assignment system. `categorization.json`, `budget.json`, and `actual categorize`
 are retained only as migration artifacts until the live acceptance gate permits
 their removal. They must not run concurrently with native rules.
 
+The public Actual API exposes schedule name, next date, amount, completion, and
+posting behavior, but not a schedule category. Prefix every active schedule
+with one of `[Fixed] `, `[Essential] `, `[Discretionary] `, `[Sinking fund] `,
+`[Savings] `, or `[Income] `. For example, use `[Discretionary] Cinema` for a
+future expense that must reduce safe-to-spend. Any active schedule without an
+explicit supported classification makes the projection untrusted; it is never silently omitted.
+The schedule snapshot is refreshed with the five-minute replica cycle and is
+considered stale after 15 minutes.
+
 ## Safe to spend and finance trust
 
 Safe to spend is a planning metric, not a bank balance:
@@ -188,7 +197,7 @@ Safe to spend is a planning metric, not a bank balance:
 ```text
 positive discretionary envelope availability
 - essential envelope underfunding
-- unpaid discretionary schedules due this month
+- unpaid discretionary schedules due through month-end (including overdue)
 ```
 
 The daily value divides the non-negative result by the remaining calendar days,
@@ -196,9 +205,11 @@ including today. Every component must trace to Actual. Money assigned to fixed
 obligations, sinking funds, or savings is never spendable merely because it is
 liquid.
 
-`finance_trust` is the analytical publication gate. Stale/missing source runs,
-quarantine, unresolved duplicate candidates, non-zero reconciliation gaps,
-excess review backlog, or invalid semantic mappings make the projection
+`finance_trust` is the analytical publication gate. It separately evaluates the
+latest attempted import and latest successful covered range: failed, dry-run,
+empty, partial-empty, missing, or stale-success histories cannot masquerade as
+current. Quarantine, non-zero authoritative reconciliation gaps, excess review
+backlog, invalid semantic mappings, and missing/incomplete/stale schedule data make the projection
 untrusted. Headline Grafana values intentionally suppress themselves when trust
 is false. Fix the underlying ledger/pipeline issue; never edit the replica to
 force trust.
@@ -217,6 +228,14 @@ Grafana exposes exactly three downstream views:
 
 All use canonical SQLite models. Grafana is for exploration and diagnosis, not
 categorization, reconciliation, scheduling, or budgeting.
+
+Duplicate candidates are regenerated transactionally from the current Actual
+snapshot with deterministic keys. They are fuzzy review evidence only and are
+never auto-deleted or labelled confirmed. The public Actual account API does
+not expose reconciled balance/date metadata, so db-sync reports
+`reconciliation_unavailable` instead of fabricating a zero gap. Reconcile in
+Actual during weekly review and month close; real externally produced
+`reconciliation_gap` checks remain trust-gating when present.
 
 ## Recurring operations
 

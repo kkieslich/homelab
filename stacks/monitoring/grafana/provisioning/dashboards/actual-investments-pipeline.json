@@ -63,9 +63,9 @@
       "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
     },
     {
-      "id": 11, "type": "table", "title": "Unresolved reconciliation gaps", "description": "Current non-zero unresolved reconciliation checks. Gap is EUR; use account and detail fields to reconcile before trusting finance totals.",
+      "id": 11, "type": "table", "title": "Reconciliation evidence", "description": "Current reconciliation capability/status from the producer. The public Actual API does not expose authoritative reconciled balance metadata, so no synthetic zero-gap assurance is shown; reconcile in Actual during month close.",
       "gridPos": { "x": 12, "y": 28, "w": 12, "h": 7 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT checked_at AS \"Checked UTC\",COALESCE(source,'') AS Source,COALESCE(account_id,'') AS Account,value_cents/100.0 AS \"Gap EUR\",detail AS Detail FROM data_quality WHERE kind='reconciliation_gap' AND resolved=0 AND COALESCE(value_cents,0)<>0 ORDER BY ABS(value_cents) DESC" }],
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT checked_at AS \"Checked UTC\",kind AS Signal,severity AS Severity,COALESCE(source,'') AS Source,detail AS Detail FROM data_quality WHERE kind IN ('reconciliation_gap','reconciliation_unavailable') ORDER BY checked_at DESC" }],
       "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } }, "unit": "short" }, "overrides": [{ "matcher": { "id": "byName", "options": "Gap EUR" }, "properties": [{ "id": "unit", "value": "currencyEUR" }] }] }, "options": { "showHeader": true }
     }
   ],

@@ -39,18 +39,18 @@
       "options": { "colorMode": "value", "graphMode": "none", "textMode": "value_and_name" }
     },
     {
-      "id": 5, "type": "stat", "title": "Safe — month", "description": "EUR, current month, evaluated_at returned by the query. Positive discretionary availability minus essential underfunding, only when finance trust passes. Unpaid schedules are excluded.",
+      "id": 5, "type": "stat", "title": "Safe — month", "description": "EUR, current month, evaluated_at returned by the canonical calculation. Positive discretionary availability minus essential underfunding and unpaid discretionary schedules due through month-end; hidden when finance trust fails.",
       "gridPos": { "x": 12, "y": 4, "w": 4, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN (SUM(CASE WHEN b.category_role='discretionary' AND b.balance_cents>0 THEN b.balance_cents ELSE 0 END)-SUM(CASE WHEN b.category_role='essential' AND b.balance_cents<0 THEN -b.balance_cents ELSE 0 END))/100.0 END AS value,datetime('now') AS evaluated_at FROM current_budgets b CROSS JOIN finance_trust f WHERE b.month=strftime('%Y-%m','now')" }],
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN s.month_cents/100.0 END AS value,s.evaluated_at FROM safe_to_spend s CROSS JOIN finance_trust f" }],
       "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
       "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
-      "id": 6, "type": "stat", "title": "Safe — day", "description": "EUR/day through month end, including today; evaluated_at is returned by the query. Excludes unpaid schedules and requires finance trust.",
+      "id": 6, "type": "stat", "title": "Safe — day", "description": "EUR/day through month end, including today; evaluated_at is returned by the canonical schedule-aware calculation and the value is hidden when finance trust fails.",
       "gridPos": { "x": 16, "y": 4, "w": 4, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN MAX(0,SUM(CASE WHEN b.category_role='discretionary' AND b.balance_cents>0 THEN b.balance_cents ELSE 0 END)-SUM(CASE WHEN b.category_role='essential' AND b.balance_cents<0 THEN -b.balance_cents ELSE 0 END))/100.0/(julianday(date('now','start of month','+1 month'))-julianday(date('now'))) END AS value,datetime('now') AS evaluated_at FROM current_budgets b CROSS JOIN finance_trust f WHERE b.month=strftime('%Y-%m','now')" }],
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN s.per_day_cents/100.0 END AS value,s.evaluated_at FROM safe_to_spend s CROSS JOIN finance_trust f" }],
       "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
       "options": { "colorMode": "value", "graphMode": "none" }
     },
@@ -82,7 +82,7 @@
       "id": 10, "type": "table", "title": "Expected source freshness", "description": "Latest run per expected source, evaluated now. Age and expected cadence are hours; status text distinguishes current, stale, and missing without relying on color.",
       "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest_runs AS (SELECT p.* FROM pipeline_runs p WHERE p.finished_at=(SELECT MAX(q.finished_at) FROM pipeline_runs q WHERE q.source=p.source)) SELECT e.source AS Source, l.finished_at AS \"Latest run (UTC)\", ROUND((strftime('%s','now')-strftime('%s',l.finished_at))/3600.0,1) AS \"Age hours\", ROUND(e.expected_cadence_seconds/3600.0,1) AS \"Expected hours\", CASE WHEN l.run_id IS NULL THEN 'MISSING' WHEN e.expected_cadence_seconds IS NULL THEN 'NO CADENCE' WHEN strftime('%s','now')-strftime('%s',l.finished_at)>e.expected_cadence_seconds THEN 'STALE' ELSE 'CURRENT' END AS Status FROM expected_sources e LEFT JOIN latest_runs l ON l.source=e.source ORDER BY Status DESC,e.source" }],
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH attempts AS (SELECT p.*,ROW_NUMBER() OVER (PARTITION BY source ORDER BY finished_at DESC,run_id DESC) r FROM pipeline_runs p), successes AS (SELECT p.*,ROW_NUMBER() OVER (PARTITION BY source ORDER BY finished_at DESC,run_id DESC) r FROM pipeline_runs p WHERE outcome='success') SELECT e.source AS Source,a.finished_at AS \"Latest attempt UTC\",a.outcome AS \"Attempt outcome\",s.finished_at AS \"Latest success UTC\",ROUND((strftime('%s','now')-strftime('%s',s.finished_at))/3600.0,1) AS \"Success age hours\",ROUND(e.expected_cadence_seconds/3600.0,1) AS \"Expected hours\",CASE WHEN a.run_id IS NULL THEN 'MISSING' WHEN a.outcome<>'success' THEN 'ATTEMPT FAILED/DRY/EMPTY' WHEN s.run_id IS NULL THEN 'NO SUCCESS' WHEN e.expected_cadence_seconds IS NULL THEN 'NO CADENCE' WHEN strftime('%s','now')-strftime('%s',s.finished_at)>e.expected_cadence_seconds THEN 'STALE SUCCESS' ELSE 'CURRENT' END AS Status FROM expected_sources e LEFT JOIN attempts a ON a.source=e.source AND a.r=1 LEFT JOIN successes s ON s.source=e.source AND s.r=1 ORDER BY Status DESC,e.source" }],
       "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
     }
   ],

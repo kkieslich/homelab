@@ -236,6 +236,38 @@ test('dry run validates and records counts without calling Actual', async () => 
   assert.equal(result.outcome, 'dry_run');
 });
 
+test('rejects an empty regression against a prior successful same-window account manifest', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  await runImport({ payload, config, registry,
+    actualApi: { importTransactions: async () => ({ added: [], updated: [] }) }, manifestDir });
+  const empty = structuredClone(payload);
+  empty.accounts[0].transactions = [];
+  await assert.rejects(() => runImport({ payload: empty, config, registry, actualApi: {}, manifestDir }), /unexpected empty batch/i);
+  const manifests = await manifestsIn(manifestDir);
+  assert.equal(manifests.find((item) => item.outcome === 'failed').error_code, 'EMPTY_BATCH_REGRESSION');
+});
+
+test('records first observed and repeated legitimate empty windows explicitly without calling them success', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const empty = structuredClone(payload);
+  empty.accounts[0].transactions = [];
+  const first = await runImport({ payload: empty, config, registry, actualApi: {}, manifestDir });
+  const second = await runImport({ payload: empty, config, registry, actualApi: {}, manifestDir });
+  assert.equal(first.outcome, 'empty');
+  assert.equal(first.accounts[0].empty_batch, 'first_observed');
+  assert.equal(second.accounts[0].empty_batch, 'previously_observed_empty');
+});
+
+test('dry runs never become the durable baseline for the empty regression guard', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  await runImport({ payload, config, registry, actualApi: {}, manifestDir, dryRun: true });
+  const empty = structuredClone(payload);
+  empty.accounts[0].transactions = [];
+  const result = await runImport({ payload: empty, config, registry, actualApi: {}, manifestDir });
+  assert.equal(result.outcome, 'empty');
+  assert.equal(result.accounts[0].empty_batch, 'first_observed');
+});
+
 test('seed balance prepends the stable canonical opening balance transaction', async () => {
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   const seeded = structuredClone(payload);

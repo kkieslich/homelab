@@ -66,11 +66,16 @@ schedules, then verify safe to spend:
 ```text
 positive discretionary envelope availability
 - essential envelope underfunding
-- unpaid discretionary schedules due this month
+- unpaid discretionary schedules due through month-end (including overdue)
 ```
 
 Every component must trace to Actual. Move money between envelopes in Actual if
 needed; never modify SQLite to change the result.
+
+Use the `[Discretionary] ` prefix for active schedules that reduce this metric,
+and `[Fixed] `, `[Essential] `, `[Sinking fund] `, `[Savings] `, or `[Income] `
+for the other active schedules. An unclassified active schedule, failed schedule fetch, or schedule projection
+older than 15 minutes suppresses the headline rather than overstating it.
 
 Use **Actual — Home** for the trust-first overview, **Actual — Monthly** for
 drivers and category/payee detail, and **Actual — Investments & Pipeline** for
@@ -90,6 +95,12 @@ verify bank evidence and merge only confirmed duplicates in Actual. Prove an
 identical fetch window has `added=0`, only understood pending/cleared updates,
 and `quarantined=0` before resuming. Use [restore.md](restore.md) for
 backup/restore; never delete a production volume in place.
+
+An empty batch is recorded as `empty` (or `partial_empty`) and never advances
+source freshness. The guard compares a source/account/window only with durable
+prior non-dry successful manifests. A drop from a prior non-empty success is
+`EMPTY_BATCH_REGRESSION`; a first genuinely empty window is explicit but still
+leaves finance trust closed until non-empty successful coverage exists.
 
 Use [month-close.md](month-close.md) for closed-month reconciliation, funding,
 sinking funds, and immutable snapshots.

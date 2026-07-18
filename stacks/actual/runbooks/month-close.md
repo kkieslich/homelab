@@ -56,6 +56,13 @@ In Actual:
    adjust targets using the remaining amount and due date.
 5. Confirm sinking-fund balances roll forward.
 
+Prefix every active schedule with its explicit canonical marker: `[Fixed] `,
+`[Essential] `, `[Discretionary] `, `[Sinking fund] `, `[Savings] `, or
+`[Income] `. Because Actual's public schedule API does not expose a category,
+an active unclassified schedule deliberately fails finance trust.
+Wait for the next db-sync refresh and confirm its schedule evidence is less than
+15 minutes old before using safe-to-spend.
+
 Routine finance policy belongs in Actual. Do not edit repository budget or
 categorization JSON; those files are migration input only until live acceptance
 authorizes retirement.
@@ -77,7 +84,7 @@ funded and trace the planning headline to Actual:
 safe to spend this month =
   positive discretionary envelope availability
   - essential envelope underfunding
-  - unpaid discretionary schedules due this month
+  - unpaid discretionary schedules due through month-end (including overdue)
 ```
 
 The daily value is the non-negative result divided by remaining calendar days,
@@ -106,6 +113,15 @@ sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs month-close \
 
 Record the capture timestamp and finance-trust evidence. Later budget edits must
 not rewrite the historical snapshot.
+
+The review gate selects only review-queue transactions whose transaction month
+equals `--month`; annotations from any other month cannot satisfy it. Net worth
+uses every Actual account, including closed and off-budget accounts, at the
+requested month-end. It derives each historical balance from the current
+authoritative Actual balance minus all projected transactions dated on or after
+the following month. This assumes the projection contains complete transaction
+history through the current balance timestamp; if that assumption is not true,
+do not apply the close.
 
 ## 6. Acceptance
 

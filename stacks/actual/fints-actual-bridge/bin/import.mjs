@@ -112,6 +112,36 @@ function planLegacyMigrations(existing, batch) {
   return { migrations, ambiguous: 0 };
 }
 
+async function readPriorManifests(directory) {
+  try {
+    const names = await fs.readdir(directory);
+    const values = [];
+    for (const name of names.filter((value) => value.endsWith('.json'))) {
+      try { values.push(JSON.parse(await fs.readFile(join(directory, name), 'utf8'))); }
+      catch { /* An incomplete/corrupt file is never evidence for an empty batch. */ }
+    }
+    return values;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+function priorBatchEvidence(manifests, source, accountId, range) {
+  const sameWindow = (manifest) => manifest.source === source
+    && manifest.requested_range?.from === range.from
+    && manifest.requested_range?.to === range.to
+    && (manifest.accounts ?? []).some((account) => account.actual_account_id === accountId);
+  const relevant = manifests.filter(sameWindow);
+  const successfulCounts = relevant
+    .filter((manifest) => manifest.outcome === 'success')
+    .map((manifest) => manifest.accounts.find((account) => account.actual_account_id === accountId)?.valid ?? 0);
+  return {
+    successfulCount: successfulCounts.length ? Math.max(...successfulCounts) : 0,
+    previouslyObservedEmpty: relevant.some((manifest) => manifest.outcome === 'empty'),
+  };
+}
+
 export async function runImport({
   payload, config, registry, actualApi, manifestDir, dryRun = false,
   seedBalance = false, output = () => {}, stateDir, now = () => new Date(),
@@ -132,6 +162,7 @@ export async function runImport({
     // Resolve the one manifest range before any Actual API write. A multi-bank
     // payload cannot safely share one range unless every bank window matches.
     manifestRange = requestedRange(payload);
+    const priorManifests = await readPriorManifests(manifestDir);
     const ownership = validateOwnership(registry);
     const banks = bankPayloads(payload);
     if (banks.length === 0) throw new Error('empty payload');
@@ -204,7 +235,17 @@ export async function runImport({
           quarantined: pendingWeak.length,
         };
         accounts.push(summary);
-        const validated = validateBatch(records, { previousCount: transactions.length });
+        const evidence = priorBatchEvidence(priorManifests, owner.source, mapping.actual_account_id, manifestRange);
+        let validated;
+        try {
+          validated = validateBatch(records, { previousCount: evidence.successfulCount });
+        } catch (error) {
+          if (/unexpected empty batch/i.test(error.message)) errorCode = 'EMPTY_BATCH_REGRESSION';
+          throw error;
+        }
+        if (records.length === 0) {
+          summary.empty_batch = evidence.previouslyObservedEmpty ? 'previously_observed_empty' : 'first_observed';
+        }
         summary.valid = validated.records.length;
         summary.quarantined += validated.duplicateCandidates.length;
         batches.push({ bankKey, actualAccountId: mapping.actual_account_id, records: validated.records, items, summary });
@@ -328,13 +369,15 @@ export async function runImport({
       }
     }
 
+    const allAccountsEmpty = accounts.length > 0 && accounts.every((account) => account.valid === 0);
+    const anyAccountEmpty = accounts.some((account) => account.valid === 0);
     const manifest = {
       schema_version: 1, run_id: runId,
       source: sources.size === 1 ? [...sources][0] : 'multiple',
       importer_version: IMPORTER_VERSION,
       started_at: startedAt, finished_at: instant(now),
       requested_range: manifestRange, accounts,
-      outcome: dryRun ? 'dry_run' : 'success', error_code: null,
+      outcome: dryRun ? 'dry_run' : allAccountsEmpty ? 'empty' : anyAccountEmpty ? 'partial_empty' : 'success', error_code: null,
     };
     await writeRunManifest(join(manifestDir, `${runId}.json`), manifest);
     return manifest;
@@ -348,6 +391,7 @@ export async function runImport({
       outcome: 'failed', error_code: errorCode ?? 'VALIDATION_FAILED',
     };
     await writeRunManifest(join(manifestDir, `${runId}.json`), manifest);
+    if (errorCode === 'EMPTY_BATCH_REGRESSION') throw new Error('Unexpected empty batch regression', { cause });
     throw new Error(errorCode ? 'Actual import failed' : 'Import validation failed', { cause });
   }
 }

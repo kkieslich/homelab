@@ -29,6 +29,7 @@ test('maps the six canonical Actual category groups and rejects unknown groups',
 function projection() {
   const db = new Database(':memory:');
   db.exec(SCHEMA);
+  db.prepare(`INSERT INTO schedule_projection (fetched_at,complete,detail) VALUES (datetime('now'),1,'fixture')`).run();
   const account = db.prepare('INSERT INTO accounts VALUES (?, ?, ?, ?, ?)');
   account.run('checking', 'Checking', 0, 0, 100000);
   account.run('card', 'Card', 0, 0, -2000);
@@ -194,5 +195,94 @@ test('finance trust rejects expected sources with no run or no cadence', () => {
   const reasons = JSON.parse(trust.reasons);
   assert.ok(reasons.includes('missing_source_run'));
   assert.ok(reasons.includes('missing_source_cadence'));
+  db.close();
+});
+
+test('finance trust distinguishes latest attempts from latest successful coverage', () => {
+  const db = projection();
+  db.prepare(`INSERT INTO expected_sources VALUES ('bank',86400)`).run();
+  db.prepare(`INSERT INTO pipeline_runs
+    (run_id,source,finished_at,requested_from,requested_to,outcome)
+    VALUES ('ok','bank',datetime('now','-1 hour'),'2026-07-01','2026-07-18','success'),
+           ('failed','bank',datetime('now'),'2026-07-01','2026-07-18','failed')`).run();
+  let trust = db.prepare('SELECT trusted,reasons FROM finance_trust').get();
+  assert.equal(trust.trusted, 0);
+  assert.ok(JSON.parse(trust.reasons).includes('latest_source_attempt_failed'));
+  db.prepare("DELETE FROM pipeline_runs WHERE run_id='failed'").run();
+  db.prepare(`INSERT INTO pipeline_runs
+    (run_id,source,finished_at,requested_from,requested_to,outcome)
+    VALUES ('dry','bank',datetime('now'),'2026-07-01','2026-07-18','dry_run')`).run();
+  trust = db.prepare('SELECT trusted,reasons FROM finance_trust').get();
+  assert.ok(JSON.parse(trust.reasons).includes('latest_source_attempt_dry_run'));
+  db.close();
+});
+
+test('finance trust rejects only-failed, empty, and stale-success source histories', () => {
+  const db = projection();
+  db.prepare(`INSERT INTO expected_sources VALUES ('failed',86400),('empty',86400),('stale',60)`).run();
+  db.prepare(`INSERT INTO pipeline_runs (run_id,source,finished_at,outcome) VALUES
+    ('f','failed',datetime('now'),'failed'),('e','empty',datetime('now'),'empty'),
+    ('s','stale',datetime('now','-1 day'),'success')`).run();
+  const reasons = JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get());
+  assert.ok(reasons.includes('missing_successful_source_run'));
+  assert.ok(reasons.includes('latest_source_attempt_empty'));
+  assert.ok(reasons.includes('stale_successful_source'));
+  db.close();
+});
+
+test('sync persists authoritative schedules and deterministic duplicate candidates', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'actual-quality-'));
+  const dbPath = path.join(dir, 'actual.sqlite');
+  const baseTx = { date: '2026-07-18', account: 'checking', amount: -1200, category: 'fun', cleared: true };
+  const snapshot = {
+    accounts: [{ id: 'checking', name: 'Checking', offbudget: false, closed: false }],
+    categoryGroups: [{ id: 'd', name: 'Discretionary', hidden: false }],
+    categories: [{ id: 'fun', name: 'Fun', group_id: 'd', is_income: false }],
+    payees: [{ id: 'shop', name: 'Shop' }], balances: { checking: -2400 }, budgetMonths: [],
+    schedules: [{ id: 's1', name: '[Discretionary] Cinema', next_date: '2026-07-25', amount: -3000, completed: false }],
+    schedulesFetchedAt: '2026-07-18T10:00:00Z',
+    transactions: [
+      { ...baseTx, id: 'a', payee: 'shop', imported_id: 'bank:a' },
+      { ...baseTx, id: 'b', payee: 'shop', imported_id: 'bank:b' },
+    ],
+  };
+  await syncToSqlite(dbPath, null, null, null, null, { snapshot, expectedSources: [], now: new Date('2026-07-18T10:00:00Z') });
+  let db = new Database(dbPath);
+  assert.deepEqual(db.prepare('SELECT role,due_date,amount_cents,completed FROM current_schedules').get(),
+    { role: 'discretionary', due_date: '2026-07-25', amount_cents: -3000, completed: 0 });
+  const candidate = db.prepare("SELECT * FROM data_quality WHERE kind='duplicate_candidate'").get();
+  assert.ok(candidate.check_id.startsWith('duplicate_candidate:'));
+  assert.equal(candidate.resolved, 0);
+  db.prepare("UPDATE data_quality SET resolved=1 WHERE kind='duplicate_candidate'").run();
+  db.close();
+  await syncToSqlite(dbPath, null, null, null, null, { snapshot, expectedSources: [], now: new Date('2026-07-18T10:30:00Z') });
+  db = new Database(dbPath, { readonly: true });
+  assert.equal(db.prepare("SELECT resolved FROM data_quality WHERE kind='duplicate_candidate'").pluck().get(), 1);
+  db.close();
+  snapshot.transactions.pop();
+  snapshot.balances.checking = -1200;
+  await syncToSqlite(dbPath, null, null, null, null, { snapshot, expectedSources: [], now: new Date('2026-07-18T11:00:00Z') });
+  db = new Database(dbPath, { readonly: true });
+  assert.equal(db.prepare("SELECT COUNT(*) FROM data_quality WHERE kind='duplicate_candidate'").pluck().get(), 0);
+  assert.equal(db.prepare("SELECT COUNT(*) FROM data_quality WHERE kind='reconciliation_unavailable'").pluck().get(), 1);
+  db.close();
+  snapshot.schedules[0].amount = { num1: -2500, num2: -3500 };
+  await syncToSqlite(dbPath, null, null, null, null, { snapshot, expectedSources: [], now: new Date('2026-07-18T12:00:00Z') });
+  db = new Database(dbPath, { readonly: true });
+  assert.equal(db.prepare('SELECT complete FROM schedule_projection').pluck().get(), 0);
+  db.close();
+});
+
+test('unclassified or missing schedule projection fails finance trust closed', () => {
+  const db = projection();
+  db.prepare('DELETE FROM schedule_projection').run();
+  assert.ok(JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get()).includes('missing_schedule_projection'));
+  db.prepare(`INSERT INTO schedule_projection (fetched_at,complete,detail) VALUES (datetime('now'),0,'unclassified_schedule')`).run();
+  const reasons = JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get());
+  assert.ok(reasons.includes('schedule_projection_incomplete'));
+  db.prepare('DELETE FROM schedule_projection').run();
+  db.prepare(`INSERT INTO schedule_projection (fetched_at,complete,detail,max_age_seconds)
+    VALUES (datetime('now','-1 hour'),1,'classified',900)`).run();
+  assert.ok(JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get()).includes('stale_schedule_projection'));
   db.close();
 });

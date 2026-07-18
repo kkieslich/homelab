@@ -12,7 +12,6 @@ function parseDay(value) {
 
 export function calculateSafeToSpend({ categories, schedules, today }) {
   const day = parseDay(today);
-  const month = today.slice(0, 7);
   const nextMonth = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 1));
   const remainingDays = Math.round((nextMonth - day) / 86400000);
   const discretionary = categories
@@ -23,7 +22,8 @@ export function calculateSafeToSpend({ categories, schedules, today }) {
     .reduce((sum, category) => sum + Math.abs(category.available), 0);
   const scheduled = schedules
     .filter(schedule => schedule.role === 'discretionary' && !schedule.paid
-      && schedule.due?.slice(0, 7) === month && schedule.due < nextMonth.toISOString().slice(0, 10))
+      && /^\d{4}-\d{2}-\d{2}$/.test(schedule.due ?? '')
+      && schedule.due < nextMonth.toISOString().slice(0, 10))
     .reduce((sum, schedule) => sum + Math.abs(Math.min(schedule.amount, 0)), 0);
   const monthCents = discretionary - underfunded - scheduled;
   return {
@@ -52,7 +52,7 @@ export function captureMonthClose({ dbPath, month, apply = false, capturedAt, no
     const review = db.prepare(`SELECT q.id FROM review_queue q
       LEFT JOIN review_queue_annotations a
         ON a.transaction_id=q.id AND a.month=? AND a.decision='accepted_for_close'
-      WHERE a.transaction_id IS NULL`).all(month);
+      WHERE q.month=? AND a.transaction_id IS NULL`).all(month, month);
     const reasons = JSON.parse(trust?.reasons ?? '[]');
     // finance_trust historically includes review_queue_exceeded. A complete set
     // of typed annotations resolves only that reason; no other trust failure.
@@ -63,8 +63,18 @@ export function captureMonthClose({ dbPath, month, apply = false, capturedAt, no
     if (review.length) throw new Error(`Review queue has ${review.length} unannotated transaction(s)`);
     const budgets = db.prepare('SELECT * FROM current_budgets WHERE month=? ORDER BY category_id').all(month);
     if (!budgets.length) throw new Error(`No current budget data for ${month}`);
-    const accounts = db.prepare('SELECT id,balance_cents FROM accounts WHERE closed=0 ORDER BY id').all();
-    const result = { month, captured_at: capture, budget_rows: budgets.length, net_worth_rows: accounts.length, applied: false };
+    const monthEndExclusive = new Date(`${month}-01T00:00:00Z`);
+    monthEndExclusive.setUTCMonth(monthEndExclusive.getUTCMonth() + 1);
+    const accounts = db.prepare(`SELECT a.id,
+      a.balance_cents-COALESCE(SUM(CASE WHEN t.date>=? THEN t.amount_cents ELSE 0 END),0) balance_cents
+      FROM accounts a LEFT JOIN transactions t ON t.account_id=a.id
+      GROUP BY a.id,a.balance_cents ORDER BY a.id`).all(monthEndExclusive.toISOString().slice(0, 10));
+    const safeToSpend = db.prepare('SELECT * FROM safe_to_spend').get();
+    const result = {
+      month, captured_at: capture, budget_rows: budgets.length, net_worth_rows: accounts.length,
+      applied: false, safe_to_spend: safeToSpend,
+      net_worth_basis: 'current Actual account balance minus complete projected transactions dated after month-end; includes open/closed and on/off-budget accounts',
+    };
     if (!apply) return result;
     const write = db.transaction(() => {
       const budgetInsert = db.prepare(`INSERT OR IGNORE INTO budget_snapshots
