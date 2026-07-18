@@ -7,7 +7,9 @@
 # Build context is this directory; the parent docker-compose.yml builds + runs
 # this image as the `fints_daemon_*` services.
 
-FROM python:3.13-slim-bookworm
+# Docker's ECR Public mirror avoids coupling homelab rebuilds to anonymous
+# Docker Hub rate limits while retaining the official-library image and tag.
+FROM public.ecr.aws/docker/library/python:3.13-slim-bookworm
 
 # Node 22 + a few deps the python-fints stack needs at runtime.
 RUN apt-get update \
