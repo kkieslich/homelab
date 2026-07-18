@@ -11,6 +11,7 @@ const COMMANDS = {
   subs:             'Detect recurring subscriptions from transaction cadence.',
   'audit-imports':  'Audit import IDs, duplicate candidates, payees, and categories (read-only).',
   'rule-candidates': 'Suggest conservative native Actual rules from reviewed history (read-only).',
+  'month-close':     'Validate and capture immutable month-end finance snapshots.',
   categorize:       'Apply rule-based categorization (config/categorization.json).',
   'fixup-transfers': 'Link orphan transfer txs (payee=transfer-payee but no transfer_id) by creating their missing mirrors.',
 };

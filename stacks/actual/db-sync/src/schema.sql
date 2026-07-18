@@ -156,6 +156,18 @@ CREATE TABLE IF NOT EXISTS net_worth_snapshots (
   PRIMARY KEY (month, captured_at, account_id)
 );
 
+-- Explicit, auditable exceptions allowing a known review item to remain open
+-- at month close. Commands accept only the closed vocabulary below; a freeform
+-- note alone can never bypass the review gate.
+CREATE TABLE IF NOT EXISTS review_queue_annotations (
+  transaction_id TEXT NOT NULL,
+  month          TEXT NOT NULL,
+  decision       TEXT NOT NULL CHECK (decision = 'accepted_for_close'),
+  annotated_at   TEXT NOT NULL,
+  note           TEXT NOT NULL CHECK (length(trim(note)) > 0),
+  PRIMARY KEY (transaction_id, month)
+);
+
 -- Securities holdings (current snapshot, drop+re-insert each db-sync cycle).
 -- Populated from holdings.json that fints-actual-bridge writes on import for
 -- depot accounts (currently only finanzen-zero / Baader Bank).
