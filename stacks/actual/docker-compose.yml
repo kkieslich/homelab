@@ -18,6 +18,8 @@ x-fints-base: &fints-base
     # fints-fetch, fints-daemon, and bin/import.mjs all persist status/state
     # here. actual_db_sync mounts the same named volume at /fints.
     STATE_DIR: /state
+    # Calendar boundary for requested-range validation; manifests stay UTC.
+    FINANCE_TIMEZONE: Europe/Berlin
   volumes:
     # banks.toml is decrypted from banks.toml.enc by pre_deploy (0644, no owner
     # strictness — read-only config).

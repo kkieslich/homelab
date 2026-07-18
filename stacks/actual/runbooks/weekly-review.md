@@ -115,6 +115,9 @@ does not satisfy trust.
 The successful process finish time must also be within cadence; a recent-looking
 coverage date from an old run is not current. Reversed, malformed, or future
 coverage ranges are rejected before import writes.
+Requested-range “today” uses `FINANCE_TIMEZONE` (`Europe/Berlin` by default),
+while manifest instants remain UTC. A run timestamp over five minutes in the
+future is invalid evidence and must be corrected at the producing host clock.
 
 Use [month-close.md](month-close.md) for closed-month reconciliation, funding,
 sinking funds, and immutable snapshots.

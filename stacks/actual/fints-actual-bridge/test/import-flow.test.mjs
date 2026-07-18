@@ -179,6 +179,21 @@ test('rejects reversed and future requested ranges before Actual writes', async 
   }
 });
 
+test('requested-range future validation follows finance timezone at local midnight', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const localTomorrow = { ...payload, requested_range: { from: '2026-07-01', to: '2026-07-19' } };
+  const result = await runImport({
+    payload: localTomorrow, config, registry, actualApi: { importTransactions: async () => ({}) }, manifestDir,
+    financeTimeZone: 'Europe/Berlin', now: () => new Date('2026-07-18T22:30:00Z'),
+  });
+  assert.equal(result.outcome, 'success');
+  const invalidDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  await assert.rejects(() => runImport({
+    payload, config, registry, actualApi: {}, manifestDir: invalidDir,
+    financeTimeZone: 'Not/A_Timezone', now: () => new Date('2026-07-18T22:30:00Z'),
+  }), /timezone/i);
+});
+
 test('allows a clearly legacy non-banks payload without a range', async () => {
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   const legacy = { bank: { key: 'fixture' }, accounts: [{ iban: 'SECRET-IBAN', transactions: [transaction] }] };

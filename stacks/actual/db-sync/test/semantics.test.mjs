@@ -321,6 +321,22 @@ test('trust requires both current coverage day and fresh successful completion',
   db.close();
 });
 
+test('future attempt and success timestamps are invalid and excluded from ranking', () => {
+  const db = projection();
+  db.prepare(`INSERT INTO expected_sources VALUES ('checking','bank',7200)`).run();
+  db.prepare(`INSERT INTO pipeline_runs (run_id,source,finished_at,outcome) VALUES
+    ('valid','bank',datetime('now','-1 hour'),'success'),
+    ('future','bank',datetime('now','+1 hour'),'failed')`).run();
+  db.prepare(`INSERT INTO pipeline_run_accounts
+    (run_id,account_id,source,requested_from,requested_to,outcome) VALUES
+    ('valid','checking','bank',date('now'),date('now'),'success'),
+    ('future','checking','bank',date('now'),date('now'),'failed')`).run();
+  const reasons = JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get());
+  assert.ok(reasons.includes('invalid_future_timestamp:checking'));
+  assert.ok(!reasons.includes('latest_account_attempt_failed:checking'));
+  db.close();
+});
+
 test('budget projection missing stale or wrong month blocks trust and makes safe-to-spend unavailable', () => {
   const db = projection();
   db.prepare(`INSERT INTO current_budgets VALUES (strftime('%Y-%m','now'), 'fun','Fun','discretionary',0,0,10000,0)`).run();

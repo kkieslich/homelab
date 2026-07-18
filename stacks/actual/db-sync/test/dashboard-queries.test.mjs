@@ -127,6 +127,12 @@ test('pipeline dashboards expose per-account coverage and authoritative reconcil
   const sql = queries(reconciliation).join('\n');
   assert.match(sql, /account_id|account/i);
   assert.doesNotMatch(sql, /reconciliation_unavailable/i);
+  for (const panel of [panelByTitle(home, 'Expected source freshness'),
+    panelByTitle(pipeline, 'Expected source coverage and freshness')]) {
+    const coverageSql = queries(panel).join('\n');
+    assert.match(coverageSql, /INVALID FUTURE TIMESTAMP/);
+    assert.match(coverageSql, /\+5 minutes|300/);
+  }
 });
 
 test('every dashboard query prepares against the canonical projection schema', () => {

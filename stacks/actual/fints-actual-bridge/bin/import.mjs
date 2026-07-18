@@ -22,6 +22,18 @@ function instant(now) {
   return (value instanceof Date ? value : new Date(value)).toISOString();
 }
 
+export function financeDay(value, timeZone = process.env.FINANCE_TIMEZONE ?? 'Europe/Berlin') {
+  let parts;
+  try {
+    parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date(value)).map((part) => [part.type, part.value]));
+  } catch (error) {
+    throw new Error(`Invalid finance timezone: ${timeZone}`, { cause: error });
+  }
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 function bankPayloads(payload) {
   return payload?.banks ?? (payload?.bank ? [{ bank: payload.bank, accounts: payload.accounts ?? [] }] : []);
 }
@@ -152,6 +164,7 @@ function priorBatchEvidence(manifests, source, accountId, range) {
 export async function runImport({
   payload, config, registry, actualApi, manifestDir, dryRun = false,
   seedBalance = false, output = () => {}, stateDir, now = () => new Date(),
+  financeTimeZone = process.env.FINANCE_TIMEZONE ?? 'Europe/Berlin',
 }) {
   const runId = randomUUID();
   const startedAt = instant(now);
@@ -186,7 +199,7 @@ export async function runImport({
     }
     // Resolve the one manifest range before any Actual API write. A multi-bank
     // payload cannot safely share one range unless every bank window matches.
-    manifestRange = requestedRange(payload, startedAt.slice(0, 10));
+    manifestRange = requestedRange(payload, financeDay(startedAt, financeTimeZone));
     const priorManifests = await readPriorManifests(manifestDir);
     const banks = bankPayloads(payload);
     if (banks.length === 0) throw new Error('empty payload');
@@ -416,6 +429,7 @@ export async function runImport({
       outcome: 'failed', error_code: errorCode ?? 'VALIDATION_FAILED',
     };
     await writeRunManifest(join(manifestDir, `${runId}.json`), manifest);
+    if (/^Invalid finance timezone:/u.test(cause?.message ?? '')) throw new Error(cause.message, { cause });
     if (errorCode === 'EMPTY_BATCH_REGRESSION') throw new Error('Unexpected empty batch regression', { cause });
     throw new Error(errorCode ? 'Actual import failed' : 'Import validation failed', { cause });
   }

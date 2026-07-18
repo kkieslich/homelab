@@ -217,6 +217,9 @@ Actual account. Coverage freshness is based on the bank window's `requested_to`
 date and that account's cadence, and the successful run itself must have
 finished within the same cadence. Ranges must be calendar-valid, ordered, and
 end no later than today.
+Run timestamps may be at most five minutes ahead for clock skew. Later attempt
+or success timestamps are `INVALID FUTURE TIMESTAMP`, gate trust, and are
+excluded from latest-attempt/latest-success ranking.
 Failed, dry-run, empty, partial-empty, missing-account, wrong-source, or
 old-window histories cannot masquerade as current. Quarantine, unresolved
 duplicate candidates, missing/stale Actual reconciliation dates, non-zero

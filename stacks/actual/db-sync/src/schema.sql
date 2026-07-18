@@ -320,6 +320,8 @@ WITH ranked_attempts AS (
   SELECT a.*,p.finished_at,
     ROW_NUMBER() OVER (PARTITION BY a.account_id,a.source ORDER BY p.finished_at DESC,a.run_id DESC) rank
   FROM pipeline_run_accounts a JOIN pipeline_runs p ON p.run_id=a.run_id
+  WHERE strftime('%s',p.finished_at) IS NOT NULL
+    AND CAST(strftime('%s',p.finished_at) AS INTEGER)<=CAST(strftime('%s','now') AS INTEGER)+300
 ), latest_attempts AS (
   SELECT * FROM ranked_attempts WHERE rank=1
 ), ranked_successes AS (
@@ -327,6 +329,8 @@ WITH ranked_attempts AS (
     ROW_NUMBER() OVER (PARTITION BY a.account_id,a.source ORDER BY a.requested_to DESC,p.finished_at DESC,a.run_id DESC) rank
   FROM pipeline_run_accounts a JOIN pipeline_runs p ON p.run_id=a.run_id
   WHERE a.outcome='success'
+    AND strftime('%s',p.finished_at) IS NOT NULL
+    AND CAST(strftime('%s',p.finished_at) AS INTEGER)<=CAST(strftime('%s','now') AS INTEGER)+300
 ), latest_successes AS (
   SELECT * FROM ranked_successes WHERE rank=1
 ), reasons(reason) AS (
@@ -358,6 +362,10 @@ WITH ranked_attempts AS (
    JOIN latest_attempts run ON run.account_id=expected.account_id AND run.source=expected.source WHERE run.outcome='dry_run'
   UNION SELECT 'latest_account_attempt_empty:'||expected.account_id FROM expected_sources expected
    JOIN latest_attempts run ON run.account_id=expected.account_id AND run.source=expected.source WHERE run.outcome IN ('empty','partial_empty')
+  UNION SELECT 'invalid_future_timestamp:'||expected.account_id FROM expected_sources expected
+   JOIN pipeline_run_accounts a ON a.account_id=expected.account_id AND a.source=expected.source
+   JOIN pipeline_runs p ON p.run_id=a.run_id
+   WHERE CAST(strftime('%s',p.finished_at) AS INTEGER)>CAST(strftime('%s','now') AS INTEGER)+300
   UNION SELECT 'reconciliation_gap' FROM data_quality quality
    JOIN accounts account ON account.id = quality.account_id AND account.closed = 0
    WHERE quality.kind = 'reconciliation_gap' AND quality.resolved = 0
