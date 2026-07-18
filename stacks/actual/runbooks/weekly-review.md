@@ -112,6 +112,9 @@ Coverage is evaluated independently for every enabled Actual account using the
 successful manifest's `requested_to` date and configured cadence. A fresh
 process that fetched an old window, or a shared-source run missing one account,
 does not satisfy trust.
+The successful process finish time must also be within cadence; a recent-looking
+coverage date from an old run is not current. Reversed, malformed, or future
+coverage ranges are rejected before import writes.
 
 Use [month-close.md](month-close.md) for closed-month reconciliation, funding,
 sinking funds, and immutable snapshots.

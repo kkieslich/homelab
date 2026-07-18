@@ -32,7 +32,13 @@ function accountMapping(config, bankKey, account) {
     || (account.account_number != null && String(candidate.accountnumber) === String(account.account_number)));
 }
 
-function requestedRange(payload) {
+function validateRange(range, today) {
+  if (!range.from || !range.to || range.from > range.to) throw new Error('import range must be ordered');
+  if (range.to > today) throw new Error('import range cannot extend into the future');
+  return range;
+}
+
+function requestedRange(payload, today) {
   const explicit = payload.requested_range != null
     || payload.from != null || payload.start != null || payload.date_from != null
     || payload.to != null || payload.end != null || payload.date_to != null;
@@ -43,7 +49,7 @@ function requestedRange(payload) {
       to: safeIsoDate(range.to ?? range.end ?? payload.date_to),
     };
     if (!result.from || !result.to) throw new Error('explicit import range must be complete and valid');
-    return result;
+    return validateRange(result, today);
   }
 
   if (!Array.isArray(payload.banks)) return { from: null, to: null };
@@ -54,6 +60,7 @@ function requestedRange(payload) {
     to: safeIsoDate(window?.end),
   }));
   if (ranges.some(({ from, to }) => !from || !to)) throw new Error('bank windows must be complete and valid');
+  for (const range of ranges) validateRange(range, today);
   if (banks.length === 1) return ranges[0];
   const identity = `${ranges[0].from}\u0000${ranges[0].to}`;
   if (ranges.some(({ from, to }) => `${from}\u0000${to}` !== identity)) {
@@ -179,7 +186,7 @@ export async function runImport({
     }
     // Resolve the one manifest range before any Actual API write. A multi-bank
     // payload cannot safely share one range unless every bank window matches.
-    manifestRange = requestedRange(payload);
+    manifestRange = requestedRange(payload, startedAt.slice(0, 10));
     const priorManifests = await readPriorManifests(manifestDir);
     const banks = bankPayloads(payload);
     if (banks.length === 0) throw new Error('empty payload');

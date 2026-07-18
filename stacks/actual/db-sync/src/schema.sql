@@ -339,7 +339,19 @@ WITH ranked_attempts AS (
   UNION SELECT 'stale_account_coverage:'||expected.account_id FROM expected_sources expected
    JOIN latest_successes run ON run.account_id=expected.account_id AND run.source=expected.source
    WHERE expected.expected_cadence_seconds > 0
-     AND (run.requested_to IS NULL OR run.requested_to < date('now',printf('-%d seconds',expected.expected_cadence_seconds)))
+     AND date(julianday(run.requested_from))=run.requested_from AND date(julianday(run.requested_to))=run.requested_to
+     AND run.requested_from<=run.requested_to AND run.requested_to<=date('now')
+     AND run.requested_to < date('now',printf('-%d seconds',expected.expected_cadence_seconds))
+  UNION SELECT 'invalid_account_coverage:'||expected.account_id FROM expected_sources expected
+   JOIN latest_successes run ON run.account_id=expected.account_id AND run.source=expected.source
+   WHERE run.requested_from IS NULL OR run.requested_to IS NULL
+     OR julianday(run.requested_from) IS NULL OR julianday(run.requested_to) IS NULL
+     OR date(julianday(run.requested_from))<>run.requested_from OR date(julianday(run.requested_to))<>run.requested_to
+     OR run.requested_from>run.requested_to OR run.requested_to>date('now')
+  UNION SELECT 'stale_account_success:'||expected.account_id FROM expected_sources expected
+   JOIN latest_successes run ON run.account_id=expected.account_id AND run.source=expected.source
+   WHERE expected.expected_cadence_seconds>0 AND
+     (strftime('%s',run.finished_at) IS NULL OR strftime('%s','now')-strftime('%s',run.finished_at)>expected.expected_cadence_seconds)
   UNION SELECT 'latest_account_attempt_failed:'||expected.account_id FROM expected_sources expected
    JOIN latest_attempts run ON run.account_id=expected.account_id AND run.source=expected.source WHERE run.outcome='failed'
   UNION SELECT 'latest_account_attempt_dry_run:'||expected.account_id FROM expected_sources expected
@@ -370,7 +382,7 @@ WITH ranked_attempts AS (
   UNION SELECT 'unresolved_duplicate_candidate' FROM data_quality
    WHERE kind='duplicate_candidate' AND resolved=0
   UNION SELECT 'reconciliation_required' FROM data_quality
-   WHERE kind IN ('reconciliation_missing','reconciliation_stale') AND resolved=0
+   WHERE kind IN ('reconciliation_missing','reconciliation_stale','reconciliation_future') AND resolved=0
   UNION SELECT 'missing_balance_cutoff' FROM accounts a
    LEFT JOIN account_projection p ON p.account_id=a.id WHERE p.account_id IS NULL
 )

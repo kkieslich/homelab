@@ -163,6 +163,22 @@ test('rejects partial or invalid explicit ranges even with a valid nested window
   }
 });
 
+test('rejects reversed and future requested ranges before Actual writes', async () => {
+  for (const requested_range of [
+    { from: '2026-07-18', to: '2026-07-17' },
+    { from: '2026-07-01', to: '2999-01-01' },
+  ]) {
+    const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+    let calls = 0;
+    await assert.rejects(() => runImport({
+      payload: { ...payload, requested_range }, config, registry,
+      actualApi: { importTransactions: async () => { calls++; } }, manifestDir,
+      now: () => new Date('2026-07-18T12:00:00Z'),
+    }), /validation failed/i);
+    assert.equal(calls, 0);
+  }
+});
+
 test('allows a clearly legacy non-banks payload without a range', async () => {
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   const legacy = { bank: { key: 'fixture' }, accounts: [{ iban: 'SECRET-IBAN', transactions: [transaction] }] };

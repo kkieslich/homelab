@@ -193,6 +193,8 @@ considered stale after 15 minutes. Every schedule must also have a real calendar
 (`amountOp=is`): expenses are negative and income is positive. Approximate,
 range, malformed, or future-skewed source evidence invalidates the whole
 schedule projection.
+Completed historical schedules require only a valid boolean completion state;
+they are not persisted as current liabilities and need no active role/date/amount.
 
 ## Safe to spend and finance trust
 
@@ -212,7 +214,9 @@ liquid.
 `finance_trust` is the analytical publication gate. It separately evaluates the
 latest attempted import and latest successful covered range for every enabled
 Actual account. Coverage freshness is based on the bank window's `requested_to`
-date and that account's cadence—not the time a process happened to finish.
+date and that account's cadence, and the successful run itself must have
+finished within the same cadence. Ranges must be calendar-valid, ordered, and
+end no later than today.
 Failed, dry-run, empty, partial-empty, missing-account, wrong-source, or
 old-window histories cannot masquerade as current. Quarantine, unresolved
 duplicate candidates, missing/stale Actual reconciliation dates, non-zero
@@ -249,6 +253,7 @@ Every open account with no date or a date older than 35 days produces a
 deterministic unresolved per-account check. It clears only after Actual reports
 a newer reconciliation date. No balance gap or EUR value is invented; real
 externally produced `reconciliation_gap` checks remain compatible.
+Dates later than the captured Actual calendar day are invalid and also gate trust.
 
 Current budgets carry their own projection timestamp and month evidence. Missing
 rows, a month other than the current Actual month, or evidence older than 15

@@ -86,9 +86,9 @@ test('finance trust exposes machine-readable reasons for every trust gate', () =
     VALUES ('stale','bank-a','2020-01-01T00:00:00Z',3600,'success',0,1),
            ('q','bank-b',datetime('now'),3600,'quarantined',2,0)`).run();
   db.prepare(`INSERT INTO pipeline_run_accounts
-    (run_id,account_id,source,requested_to,outcome,quarantined) VALUES
-    ('stale','checking','bank-a','2020-01-01','success',0),
-    ('q','card','bank-b',date('now'),'quarantined',2)`).run();
+    (run_id,account_id,source,requested_from,requested_to,outcome,quarantined) VALUES
+    ('stale','checking','bank-a','2020-01-01','2020-01-01','success',0),
+    ('q','card','bank-b',date('now'),date('now'),'quarantined',2)`).run();
   db.prepare(`INSERT INTO data_quality
     (check_id,checked_at,kind,account_id,value_cents,resolved)
     VALUES ('gap',datetime('now'),'reconciliation_gap','checking',100,0)`).run();
@@ -299,6 +299,28 @@ test('trust requires current successful covered range for every expected account
   db.close();
 });
 
+test('trust requires both current coverage day and fresh successful completion', () => {
+  const db = projection();
+  db.prepare(`INSERT INTO expected_sources VALUES ('checking','bank',7200)`).run();
+  db.prepare(`INSERT INTO pipeline_runs (run_id,source,finished_at,outcome) VALUES
+    ('old-finish','bank',datetime('now','-23 hours'),'success')`).run();
+  db.prepare(`INSERT INTO pipeline_run_accounts
+    (run_id,account_id,source,requested_from,requested_to,outcome)
+    VALUES ('old-finish','checking','bank',date('now'),date('now'),'success')`).run();
+  let reasons = JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get());
+  assert.ok(reasons.includes('stale_account_success:checking'));
+  db.prepare('DELETE FROM pipeline_run_accounts').run();
+  db.prepare('DELETE FROM pipeline_runs').run();
+  db.prepare(`INSERT INTO pipeline_runs (run_id,source,finished_at,outcome) VALUES
+    ('future','bank',datetime('now'),'success')`).run();
+  db.prepare(`INSERT INTO pipeline_run_accounts
+    (run_id,account_id,source,requested_from,requested_to,outcome)
+    VALUES ('future','checking','bank',date('now'),date('now','+1 day'),'success')`).run();
+  reasons = JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get());
+  assert.ok(reasons.includes('invalid_account_coverage:checking'));
+  db.close();
+});
+
 test('budget projection missing stale or wrong month blocks trust and makes safe-to-spend unavailable', () => {
   const db = projection();
   db.prepare(`INSERT INTO current_budgets VALUES (strftime('%Y-%m','now'), 'fun','Fun','discretionary',0,0,10000,0)`).run();
@@ -359,6 +381,28 @@ test('schedule projection rejects malformed dates timestamps types operations an
   }
 });
 
+test('completed historical schedules need only a valid boolean completion state', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'actual-completed-schedule-'));
+  const snapshot = {
+    accounts: [], categoryGroups: [], categories: [], payees: [], transactions: [], balances: {}, balanceAsOf: {}, budgetMonths: [],
+    schedulesFetchedAt: '2026-07-18T10:00:00Z',
+    schedules: [{ id: 'done', name: 'Historical schedule', next_date: null, amountOp: 'isbetween', amount: null, completed: true }],
+  };
+  const dbPath = path.join(dir, 'ok.sqlite');
+  await syncToSqlite(dbPath, null, null, null, null, { snapshot, expectedSources: [], now: new Date('2026-07-18T10:00:00Z') });
+  let db = new Database(dbPath, { readonly: true });
+  assert.equal(db.prepare('SELECT complete FROM schedule_projection').pluck().get(), 1);
+  assert.equal(db.prepare('SELECT COUNT(*) FROM current_schedules').pluck().get(), 0);
+  db.close();
+  snapshot.schedules[0].completed = 'true';
+  const badPath = path.join(dir, 'bad.sqlite');
+  await syncToSqlite(badPath, null, null, null, null, { snapshot, expectedSources: [], now: new Date('2026-07-18T10:00:00Z') });
+  db = new Database(badPath, { readonly: true });
+  assert.equal(db.prepare('SELECT complete FROM schedule_projection').pluck().get(), 0);
+  assert.match(db.prepare('SELECT detail FROM schedule_projection').pluck().get(), /completed_type/);
+  db.close();
+});
+
 test('reconciliation evidence is per account and clears only after authoritative reconciliation advances', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'actual-reconcile-'));
   const dbPath = path.join(dir, 'actual.sqlite');
@@ -383,6 +427,21 @@ test('reconciliation evidence is per account and clears only after authoritative
   await syncToSqlite(dbPath, null, null, null, null, { snapshot, expectedSources: [], now: new Date('2026-07-18T11:00:00Z') });
   db = new Database(dbPath, { readonly: true });
   assert.equal(db.prepare("SELECT COUNT(*) FROM data_quality WHERE kind LIKE 'reconciliation_%'").pluck().get(), 0);
+  db.close();
+});
+
+test('future reconciliation dates are rejected as reconciliation-required evidence', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'actual-future-reconcile-'));
+  const dbPath = path.join(dir, 'actual.sqlite');
+  const snapshot = {
+    accounts: [{ id: 'checking', name: 'Checking', offbudget: false, closed: false, last_reconciled: '2026-07-19' }],
+    categoryGroups: [], categories: [], payees: [], transactions: [], balances: { checking: 0 }, balanceAsOf: { checking: '2026-07-18' },
+    budgetMonths: [], schedules: [], schedulesFetchedAt: '2026-07-18T10:00:00Z',
+  };
+  await syncToSqlite(dbPath, null, null, null, null, { snapshot, expectedSources: [], now: new Date('2026-07-18T10:00:00Z') });
+  const db = new Database(dbPath, { readonly: true });
+  assert.equal(db.prepare("SELECT kind FROM data_quality WHERE account_id='checking'").pluck().get(), 'reconciliation_future');
+  assert.ok(JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get()).includes('reconciliation_required'));
   db.close();
 });
 

@@ -358,22 +358,32 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
     const schedulesFetchedAt = snapshot.schedulesFetchedAt ?? capturedAt;
     const schedules = snapshot.schedules;
     if (!Array.isArray(schedules) || !validSourceInstant(schedulesFetchedAt, projectionNow)) {
-      insertScheduleProjection.run(schedulesFetchedAt, 0, 'Actual schedule API data missing', 900);
+      insertScheduleProjection.run(schedulesFetchedAt, 0,
+        !Array.isArray(schedules) ? 'schedules_missing' : 'source_timestamp_invalid', 900);
     } else {
-      let complete = 1;
+      const errors = new Set();
       for (const schedule of schedules) {
+        if (typeof schedule.completed !== 'boolean') {
+          errors.add('completed_type');
+          continue;
+        }
+        if (schedule.completed) continue;
         const role = scheduleRole(schedule.name);
         const signValid = role === 'income' ? schedule.amount > 0 : schedule.amount < 0;
-        const hasRequiredData = Boolean(schedule.id && schedule.name)
-          && validIsoDay(schedule.next_date) && typeof schedule.completed === 'boolean'
+        if (!schedule.id || !schedule.name) errors.add('identity');
+        if (!role) errors.add('role');
+        if (!validIsoDay(schedule.next_date)) errors.add('next_date');
+        if (schedule.amountOp !== 'is') errors.add('amount_op');
+        if (!Number.isInteger(schedule.amount)) errors.add('amount');
+        if (Number.isInteger(schedule.amount) && role && !signValid) errors.add('amount_sign');
+        const valid = schedule.id && schedule.name && role && validIsoDay(schedule.next_date)
           && schedule.amountOp === 'is' && Number.isInteger(schedule.amount) && signValid;
-        if (!role || !hasRequiredData) complete = 0;
-        if (!schedule.id) continue;
+        if (!valid) continue;
         insertSchedule.run(schedule.id, schedule.name ?? 'Unnamed schedule', role, schedule.next_date ?? null,
-          Number.isInteger(schedule.amount) ? schedule.amount : null, schedule.completed ? 1 : 0, schedulesFetchedAt);
+          schedule.amount, 0, schedulesFetchedAt);
       }
-      insertScheduleProjection.run(schedulesFetchedAt, complete,
-        complete ? 'authoritative_actual_api' : 'unclassified_active_schedule', 900);
+      insertScheduleProjection.run(schedulesFetchedAt, errors.size === 0 ? 1 : 0,
+        errors.size === 0 ? 'authoritative_actual_api' : `invalid_active_schedule:${[...errors].sort().join(',')}`, 900);
     }
 
     for (const candidate of duplicateCandidates(snapshot.transactions, payeeNameById, capturedAt)) {
@@ -384,11 +394,16 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
     const reconciliationCutoff = new Date(`${capturedDay(projectionNow)}T12:00:00Z`);
     reconciliationCutoff.setUTCDate(reconciliationCutoff.getUTCDate() - 35);
     const reconciliationDay = reconciliationCutoff.toISOString().slice(0, 10);
+    const capturedDayValue = capturedDay(projectionNow);
     for (const account of snapshot.accounts.filter((account) => !account.closed)) {
       const reconciled = validIsoDay(account.last_reconciled) ? account.last_reconciled : null;
       if (!reconciled) {
         insertQuality.run(`reconciliation_missing:${account.id}`, capturedAt, 'reconciliation_missing',
           'actual-api', account.id, 'No authoritative Actual reconciliation date', null, 0, 'error', 'db-sync');
+      } else if (reconciled > capturedDayValue) {
+        insertQuality.run(`reconciliation_future:${account.id}:${reconciled}`, capturedAt, 'reconciliation_future',
+          'actual-api', account.id, JSON.stringify({ last_reconciled: reconciled, captured_day: capturedDayValue }),
+          null, 0, 'error', 'db-sync');
       } else if (reconciled < reconciliationDay) {
         insertQuality.run(`reconciliation_stale:${account.id}:${reconciled}`, capturedAt, 'reconciliation_stale',
           'actual-api', account.id, JSON.stringify({ last_reconciled: reconciled, max_age_days: 35 }),
