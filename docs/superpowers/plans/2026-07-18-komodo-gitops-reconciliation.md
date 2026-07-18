@@ -343,4 +343,3 @@ git commit -m "chore(gitops): add health policy and reconciliation checks"
 3. Observe whether native sync deploys have acceptable monorepo selectivity; add the selective Action only if evidence requires it.
 4. Expand image automation one policy group at a time.
 5. Roll back by disabling the reconciliation procedure schedule through the API/CLI, then revert the responsible Git commit. Do not delete stacks or volumes.
-
