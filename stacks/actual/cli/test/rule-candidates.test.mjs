@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { generateRuleCandidates } from '../src/commands/rule-candidates.mjs';
+import { generateRuleCandidates, run } from '../src/commands/rule-candidates.mjs';
 
 function history(payee, categories) {
   return categories.map((category, index) => ({
@@ -86,4 +86,46 @@ test('uses only reviewed on-budget non-transfer history and returns stable raw v
   assert.equal(candidates[0].count, 3);
   assert.equal(candidates[0].dominant_category, 'Groceries');
   assert.deepEqual(candidates[0].imported_payee_variants, ['local-shop raw 0', 'local-shop raw 1']);
+});
+
+test('CLI path marks a candidate manual-only when its dominant category is person-to-person', async () => {
+  const snapshot = {
+    ...base,
+    categories: [...base.categories, { id: 'p2p', name: 'Friends & P2P' }],
+    transactions: history('person', Array(3).fill('p2p')),
+  };
+  const output = [];
+  let sessions = 0;
+
+  await run(['--json'], {
+    withActual: async (callback) => {
+      sessions += 1;
+      return callback({
+        getAccounts: async () => snapshot.accounts,
+        getCategories: async () => snapshot.categories,
+        getPayees: async () => snapshot.payees,
+        getTransactions: async (accountId) => snapshot.transactions.filter((transaction) => transaction.account === accountId),
+      });
+    },
+    log: (value) => output.push(value),
+  });
+
+  assert.equal(sessions, 1);
+  const candidates = JSON.parse(output.join('\n'));
+  assert.equal(candidates[0].payee_name, 'Max Mustermann');
+  assert.equal(candidates[0].manual_only, true);
+  assert.ok(candidates[0].risk_flags.includes('person_to_person'));
+});
+
+test('command help prints usage without opening Actual', async () => {
+  const output = [];
+  let sessions = 0;
+
+  await run(['--help'], {
+    withActual: async () => { sessions += 1; },
+    log: (value) => output.push(value),
+  });
+
+  assert.equal(sessions, 0);
+  assert.match(output.join('\n'), /Usage: actual rule-candidates/u);
 });

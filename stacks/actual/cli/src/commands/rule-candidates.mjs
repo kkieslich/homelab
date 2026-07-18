@@ -16,11 +16,14 @@ function finiteThreshold(value, fallback, name, { integer = false } = {}) {
   return parsed;
 }
 
-function riskFlags(payeeName, personPayees) {
+function riskFlags(payeeName, categoryName, personPayees) {
   const flags = RISK_PATTERNS
     .filter(([, pattern]) => pattern.test(payeeName))
     .map(([flag]) => flag);
   if (personPayees.has(payeeName.toLocaleLowerCase('und')) && !flags.includes('person_to_person')) {
+    flags.push('person_to_person');
+  }
+  if (/\b(?:friends?\s*(?:&|and)\s*p2p|person[ -]to[ -]person|p2p)\b/iu.test(categoryName) && !flags.includes('person_to_person')) {
     flags.push('person_to_person');
   }
   return flags;
@@ -64,13 +67,14 @@ export function generateRuleCandidates(snapshot, options = {}) {
     const confidence = dominantCount / count;
     if (count < minCount || confidence < minConfidence) continue;
     const payeeName = payees.get(payeeId).name;
-    const flags = riskFlags(payeeName, personPayees);
+    const categoryName = categories.get(categoryId).name;
+    const flags = riskFlags(payeeName, categoryName, personPayees);
     candidates.push({
       payee_id: payeeId,
       payee_name: payeeName,
       count,
       dominant_category_id: categoryId,
-      dominant_category: categories.get(categoryId).name,
+      dominant_category: categoryName,
       confidence,
       imported_payee_variants: [...group.variants].sort((left, right) => left.localeCompare(right)),
       risk_flags: flags,
@@ -91,11 +95,25 @@ export function renderHuman(candidates) {
   return lines.join('\n');
 }
 
-export async function run(argv) {
+const HELP = `Usage: actual rule-candidates [options]
+
+Options:
+  --min-count=N       Minimum reviewed transactions (default: 3)
+  --min-confidence=N  Minimum dominant-category share (default: 0.9)
+  --json              Print machine-readable JSON
+  --help              Print this help without opening the budget`;
+
+export async function run(argv, dependencies = {}) {
   const args = parseArgs(argv);
+  const log = dependencies.log ?? console.log;
+  if (args.help) {
+    log(HELP);
+    return;
+  }
   const minCount = finiteThreshold(args['min-count'], 3, 'min-count', { integer: true });
   const minConfidence = finiteThreshold(args['min-confidence'], 0.9, 'min-confidence');
-  const snapshot = await withActual(async (api) => {
+  const openActual = dependencies.withActual ?? withActual;
+  const snapshot = await openActual(async (api) => {
     const accounts = await api.getAccounts();
     const categories = await api.getCategories();
     const payees = await api.getPayees();
@@ -110,5 +128,5 @@ export async function run(argv) {
     return { accounts, categories, payees, transactions };
   });
   const candidates = generateRuleCandidates(snapshot, { minCount, minConfidence });
-  console.log(args.json ? JSON.stringify(candidates, null, 2) : renderHuman(candidates));
+  log(args.json ? JSON.stringify(candidates, null, 2) : renderHuman(candidates));
 }
