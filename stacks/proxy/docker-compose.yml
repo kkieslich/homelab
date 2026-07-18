@@ -10,6 +10,10 @@ services:
     # Caddyfile (which replaces the file's inode) the running container sees it —
     # a single-file bind mount would keep the stale inode until recreated.
     command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --watch
+    env_file:
+      # Decrypted from the repo's enc.env by Komodo pre_deploy.
+      - path: ./.env
+        required: true
     ports:
       - "80:80"
       - "443:443"

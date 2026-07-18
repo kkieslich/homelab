@@ -30,10 +30,10 @@ syncs/      Komodo GitOps resource definitions (TOML)
 - **Data** lives on the host at absolute `/persist/appdata/...` paths (bind
   mounts), so it is independent of Komodo's clone directory and survives
   container recreation.
-- **Secrets** are NOT in this repo. Real secrets are delivered by **sops-nix**
-  (in the separate `home-infrastructure` NixOS repo) to `/run/secrets/*.env`,
-  which the compose files reference via `env_file:`. Komodo Variables are used
-  only for non-secret pins.
+- **Workload secrets** live beside their stack as SOPS ciphertext (`enc.env` or
+  `*.enc`) and are decrypted on the target by Komodo `pre_deploy`. Plaintext
+  outputs are gitignored. `home-infrastructure` contains only host and Komodo
+  identity secrets; it has no Compose-workload credentials.
 - The external `proxy_net` network is created outside Komodo (a small NixOS
   oneshot on the UM870).
 
@@ -48,6 +48,11 @@ whose desired Git state changed (`deploy = true`). This deliberately uses
 internal polling rather than exposing Komodo's `/listener` endpoint to GitHub.
 No UI pull, sync, or redeploy action is required; expected worst-case Git rollout
 latency is about five minutes plus deployment time.
+
+The Proxy stack is also deployed idempotently on every reconciliation. Komodo
+only compares Compose files when deciding whether a stack changed, while Caddy's
+configuration is an auxiliary bind-mounted file. The deploy refreshes the Git
+clone and Caddy's `--watch` process reloads the updated Caddyfile.
 
 The separate **Global Auto Update** procedure runs every 15 minutes. Registry-
 backed stacks opt into digest polling and automatic rollout in

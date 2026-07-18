@@ -18,6 +18,16 @@ executions = [
   { execution.type = "RunSync", execution.params.sync = "homelab", enabled = true },
 ]
 
+# Komodo's stack change detector compares Compose contents, not auxiliary
+# bind-mounted files. An idempotent proxy deploy updates its Git clone every
+# cycle; Caddy's --watch then reloads a changed directory-mounted Caddyfile.
+[[procedure.config.stage]]
+name = "Refresh proxy auxiliary files"
+enabled = true
+executions = [
+  { execution.type = "DeployStack", execution.params.stack = "proxy", enabled = true },
+]
+
 # Declaring the seeded "Global Auto Update" here makes its 15-minute cadence
 # version-controlled. It runs the GlobalAutoUpdate job, which pulls the latest
 # image for every registry-backed stack flagged poll_for_updates/auto_update

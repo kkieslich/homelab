@@ -22,6 +22,9 @@ grafana.home.kki.berlin {
 }
 
 ledfx.home.kki.berlin {
+    basic_auth {
+        admin {$LEDFX_PASSWORD_HASH}
+	}
     encode gzip zstd
     reverse_proxy host.docker.internal:8888
 }

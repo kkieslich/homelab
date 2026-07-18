@@ -81,6 +81,30 @@ def main() -> int:
         execution = config["stage"][0]["executions"][0]["execution"]
         if execution != expected_execution:
             errors.append(f"unexpected reconciliation execution: {execution!r}")
+        expected_proxy_execution = {"type": "DeployStack", "params": {"stack": "proxy"}}
+        proxy_execution = config["stage"][1]["executions"][0]["execution"] if len(config["stage"]) > 1 else None
+        if proxy_execution != expected_proxy_execution:
+            errors.append(f"unexpected proxy reconciliation execution: {proxy_execution!r}")
+
+    caddyfile = (ROOT / "stacks" / "proxy" / "caddy" / "Caddyfile").read_text()
+    proxy_compose = (ROOT / "stacks" / "proxy" / "docker-compose.yml").read_text()
+    if "admin {$LEDFX_PASSWORD_HASH}" not in caddyfile:
+        errors.append("proxy: LedFx password hash must use Caddy environment substitution")
+    if "$2a$" in caddyfile or "$2b$" in caddyfile or "$2y$" in caddyfile:
+        errors.append("proxy: Caddyfile contains an inline bcrypt hash")
+    if "path: ./.env" not in proxy_compose:
+        errors.append("proxy: Caddy service must consume its repo-decrypted .env")
+    proxy_config = by_name["proxy"]["config"]
+    if "sops -d" not in proxy_config.get("pre_deploy", {}).get("command", ""):
+        errors.append("proxy: missing SOPS pre_deploy decryption")
+
+    beerbot_config = by_name["beerbot"]["config"]
+    beerbot_pre_deploy = beerbot_config.get("pre_deploy", {}).get("command", "")
+    for required in ("registry.env.enc", "old-vps.key.enc", "docker login"):
+        if required not in beerbot_pre_deploy:
+            errors.append(f"beerbot: pre_deploy missing {required}")
+    if beerbot_config.get("registry_provider") or beerbot_config.get("registry_account"):
+        errors.append("beerbot: registry credential must not depend on host bootstrap")
 
     if errors:
         print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)

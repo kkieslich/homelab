@@ -4,8 +4,8 @@
 #
 # All data bind mounts inside these compose files are ABSOLUTE (/persist/...),
 # so they resolve to the host path regardless of Komodo's clone directory.
-# Real secrets stay in sops-nix at /run/secrets/*.env (referenced by the
-# compose files' own `env_file:` directives) — NOT in Komodo or this repo.
+# Workload secrets are committed only as SOPS ciphertext beside each stack and
+# decrypted by pre_deploy. Plaintext never enters Git or Komodo variables.
 #
 # Deploy order mirrors the old homeserver-compose ordering; proxy first
 # (creates nothing but is the ingress), actual last.
@@ -23,6 +23,10 @@ run_directory = "stacks/proxy"
 file_paths = ["docker-compose.yml"]
 poll_for_updates = true
 auto_update = true
+[stack.config.pre_deploy]
+path = ""
+shell_mode = true
+command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env'
 
 [[stack]]
 name = "mqtt"
@@ -134,10 +138,8 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/beerbot"
 file_paths = ["docker-compose.yml"]
-# Private GHCR images — Periphery does `docker login ghcr.io` with this account
-# (created by the komodo-bootstrap oneshot from /run/secrets/beerbot-ghcr.env).
-registry_provider = "ghcr.io"
-registry_account = "kkieslich"
+# Private GHCR images — pre_deploy decrypts the repo-owned registry credential
+# and logs the Periphery Docker client in before Compose pulls images.
 # Auto-deploy on new images: Komodo polls GHCR for a new digest on the :latest
 # app images (using the registry account above) and redeploys when one appears —
 # so a CI push of a new image rolls out on its own, no webhook/CI hook needed.
@@ -161,7 +163,7 @@ ignore_services = ["beerbot-db-init", "beerbot-keycloak-config", "beerbot-minio-
 [stack.config.pre_deploy]
 path = ""
 shell_mode = true
-command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env && SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary fcm-api.json.enc > fcm-api.json && chmod 600 fcm-api.json'
+command = '''set -eu; K=/var/lib/komodo-periphery/age-key.txt; R=.registry.env; trap 'rm -f "$R"' EXIT; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary fcm-api.json.enc > fcm-api.json && chmod 600 fcm-api.json; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary old-vps.key.enc > old-vps.key && chmod 600 old-vps.key; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary registry.env.enc > "$R" && chmod 600 "$R"; set -a; . ./"$R"; set +a; printf %s "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin >/dev/null'''
 
 # Sendspin player — the official OHF Python player (sendspin-cli), built locally
 # from stacks/sendspin/Dockerfile. Connects to the Music Assistant Sendspin

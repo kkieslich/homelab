@@ -17,10 +17,9 @@ name: "beerbot"
 #  - GHCR images are private: the `ghcr.io` registry account (created by
 #    komodo-bootstrap) authenticates the pull.
 #
-# The migrator's old-prod SSH key is the one exception still delivered by
-# sops-nix at /run/secrets/beerbot-old-vps: OpenSSH's strict ownership check
-# needs it root-owned, which a pre_deploy decrypt (runs as komodo-periphery)
-# cannot produce. The migrator is transitional, so this is temporary.
+# The migrator's old-prod SSH key is stored as repo ciphertext and decrypted by
+# pre_deploy. The root-running container copies the read-only source key to a
+# root-owned 0600 path before invoking OpenSSH.
 
 # Shared NON-SECRET MinIO endpoint config. Every backend service that talks to
 # MinIO reads these, so they are defined once here and merged into each service's
@@ -295,8 +294,8 @@ services:
   # Runs `sync --watch 900` continuously (the image's default CMD): every ~15 min
   # it opens the in-service SSH tunnel to old prod and syncs identity → domain →
   # pictures → recompute into the new DB. Starts only after provision succeeds.
-  # The old-prod SSH key is delivered by sops-nix at /run/secrets/beerbot-old-vps
-  # (root-owned, for OpenSSH's ownership check — see the header note).
+  # pre_deploy decrypts the old-prod SSH key from this stack's ciphertext; the
+  # entrypoint below makes the container-local root-owned copy OpenSSH requires.
   beerbot-migrator:
     image: ghcr.io/beerbotapp/beerbot/migrator:latest
     container_name: beerbot-migrator
@@ -315,13 +314,20 @@ services:
       KEYCLOAK_BASE_URL: http://beerbot-keycloak:8080
       KEYCLOAK_REALM: beerbot
       # In-container path of the mounted key (matches the volume below).
-      MIGRATOR_TUNNEL_KEY_FILE: /keys/old-vps
+      MIGRATOR_TUNNEL_KEY_FILE: /tmp/old-vps
       # POSTGRES_* (new DB), BEERBOT_LEGACY_CONNECTION (old DB; the auth one is
       # derived from it), MIGRATOR_TUNNEL_TARGET, KEYCLOAK_ADMIN_*,
       # MINIO_ROOT_USER/PASSWORD come from ./.env.
     volumes:
-      # sops-nix delivers the old-prod SSH private key here (read-only).
-      - /run/secrets/beerbot-old-vps:/keys/old-vps:ro
+      - ./old-vps.key:/keys/old-vps-source:ro
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        cp /keys/old-vps-source /tmp/old-vps
+        chmod 600 /tmp/old-vps
+        exec dotnet BeerBot.Migrator.dll "$$@"
+      - --
     networks: [proxy_net]
 
 volumes:
