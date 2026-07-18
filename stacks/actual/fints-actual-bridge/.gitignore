@@ -10,7 +10,6 @@ dist/
 data/
 *.log
 node_modules/
-package-lock.json
 fints-status.json
 holdings.json
 .state-*.bin
