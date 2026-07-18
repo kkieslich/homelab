@@ -1,6 +1,6 @@
 # Actual Budget stack
 
-Self-hosted [Actual Budget](https://actualbudget.org/) running on the home server, with manual FinTS imports for UmweltBank and Baader, rule-based categorization, versioned budget targets, and a SQLite read-replica that feeds the Grafana finance dashboards.
+Self-hosted [Actual Budget](https://actualbudget.org/) running on the home server, with FinTS imports for UmweltBank and Baader, native Actual rules and envelopes, and a SQLite read replica that feeds read-only Grafana finance dashboards.
 
 ## Architecture
 
@@ -15,8 +15,8 @@ manual Komodo procedures
 actual_server
 container · :5006
         │
-        ├── cli/config/categorization.json
-        ├── cli/config/budget.json
+        ├── native payees, rules, transfers, schedules, envelopes
+        ├── cli/config/category-groups.json (validation/bootstrap only)
         │
         ▼
 actual_db_sync
@@ -44,10 +44,12 @@ Grafana lives in [`stacks/monitoring/`](../../stacks/monitoring/) and reads the 
 | Path | What it is |
 |---|---|
 | [`cli/`](cli/) | Local Node CLI (`actual fetch / analyze / subs / categorize`) for ad-hoc analysis and rule-based categorization. Not a container — runs from your dev machine. |
-| [`cli/config/`](cli/config/) | Versioned categorization rules and monthly budget targets. |
+| [`cli/config/`](cli/config/) | Import/account contracts plus category-group validation/bootstrap configuration. Actual remains authoritative. |
 | [`db-sync/`](db-sync/) | The SQLite read-replica writer. Reuses `cli/`'s subscription detector. |
 | [`fints-actual-bridge/`](fints-actual-bridge/) | Python+Node bridge that fetches credit-card transactions via FinTS (which exposes them, unlike PSD2) and imports them into Actual. Runs manually due to interactive SCA. See its own README for protocol notes. |
 | [`runbooks/restore.md`](runbooks/restore.md) | Verified backup, restore-drill, and guarded duplicate-cleanup procedure. |
+| [`runbooks/weekly-review.md`](runbooks/weekly-review.md) | Five-to-ten-minute import, review-queue, schedule, and reconciliation workflow. |
+| [`runbooks/month-close.md`](runbooks/month-close.md) | Month-end reconciliation, sinking-fund maintenance, envelope funding, and safe-to-spend workflow. |
 | `/persist/docker/volumes/actual_server-data/_data` | Production named-volume data for `actual_server`. |
 | `/persist/docker/volumes/actual_fints-state/_data` | Production FinTS runtime state, fetch output, status, and holdings files. |
 | `/persist/docker/volumes/actual_db/_data` | Production SQLite read replica shared with Grafana. |
@@ -67,7 +69,7 @@ Grafana lives in [`stacks/monitoring/`](../../stacks/monitoring/) and reads the 
 | `pipeline_status` | one row per import source: `umwelt`, `fnz` (from `fints-status.json`), and `sync` (this container's own heartbeat) |
 | `holdings` | current depot positions from `holdings.json` — ISIN, name, pieces, market_value, total_value, valuation_date |
 | `holdings_history` | append-only — one row per holding per snapshot for portfolio-value-over-time charts |
-| `budgets` | monthly targets from `cli/config/budget.json` |
+| `budgets` | Legacy monthly targets from `cli/config/budget.json` during migration only; do not use as authoritative funded-envelope data. |
 
 Because every refresh is a `DELETE + re-INSERT` inside a transaction with WAL journaling, Grafana queries are non-blocking and never see partial state.
 
@@ -119,6 +121,21 @@ All four use the SQLite datasource (`uid: actual`) and run live SQL — copy any
 
 ## Daily / weekly workflows
 
+Actual is the only correction and budgeting interface. It owns payees,
+categories, transfer semantics, native rules, schedules, and funded envelope
+balances. Grafana and the SQLite replica are read-only downstream views.
+
+Follow the [weekly finance review](runbooks/weekly-review.md) after imports and
+the [monthly close](runbooks/month-close.md) before funding a new month.
+
+The category-group contract in
+[`cli/config/category-groups.json`](cli/config/category-groups.json) lists the
+six exact group names accepted by downstream validation. It may bootstrap a
+new budget, but it does not assign categories or replace Actual. Every active
+category belongs to exactly one of `Fixed obligations`, `Flexible essentials`,
+`Discretionary`, `Sinking funds`, `Savings and investing`, or `Income`.
+Transfers have no spending role.
+
 ### Import ownership
 
 [`cli/config/accounts.json`](cli/config/accounts.json) is the authoritative
@@ -156,13 +173,12 @@ then Ctrl-q; never use Ctrl-c. Check its health afterward with:
 sudo docker logs --tail 100 fints_daemon_baader
 ```
 
-This also writes `fints-status.json` so the Pipeline Health dashboard knows when each bank last synced. Then categorize:
-
-```sh
-cd ../cli && npx actual categorize --apply
-```
-
-The dashboards reflect the new data within 5 minutes (next `actual_db_sync` cycle), or restart the container to refresh immediately.
+This also writes `fints-status.json` so the Pipeline Health dashboard knows
+when each bank last synced. Review the resulting transactions in Actual and
+allow native rules to handle stable payees. Do not run the legacy external
+categorizer after native-rule cutover. The dashboards reflect new data within
+five minutes (the next `actual_db_sync` cycle), or restart that container to
+refresh immediately.
 
 ### "I want to see if I'm overspending"
 
@@ -222,15 +238,15 @@ cd cli && npx actual subs --include-stale
 
 ### "Something looks miscategorized"
 
-Edit `cli/config/categorization.json` to add or fix a rule. Then:
+Correct the payee first and the category second in Actual. Accept or refine a
+native Actual rule only when the imported description has a stable meaning.
+Keep variable-purpose aggregators and person-to-person transactions reviewable.
+Do not use `Needs Review` as a category; leave unresolved transactions visible
+in the saved review filter.
 
-```sh
-cd cli && npx actual categorize                                # dry run
-npx actual categorize --apply                                  # commit
-npx actual categorize --apply --recat-categories="WrongCat"    # force re-evaluate
-```
-
-The matcher walks rules top-to-bottom and uses the first match — order matters.
+`cli/config/categorization.json` and the `actual categorize` command are legacy
+migration aids. They must not write concurrently with native rules after
+cutover.
 
 ### "Is my pipeline healthy?"
 
@@ -245,7 +261,7 @@ Open **Actual — Pipeline Health**. The per-bank import status table goes yello
 | `actual fetch` | Snapshot the entire budget (accounts, categories, payees, txs) to `$TMPDIR/actual-cli/transactions.json`. |
 | `actual analyze [--months=12] [--top=12] [--drilldown=A,B] [--csv]` | Spending breakdown over rolling window with trend flags. |
 | `actual subs [--include-stale] [--min-amount=2] [--csv]` | Recurring-charge detector by cadence + amount stability. |
-| `actual categorize [--apply] [--recat-fallback] [--recat-categories=A,B]` | Apply rules from `cli/config/categorization.json`. Dry run by default. |
+| `actual categorize [--apply] [--recat-fallback] [--recat-categories=A,B]` | Legacy migration aid for `cli/config/categorization.json`; do not apply after native-rule cutover. |
 
 ## Where things live
 
@@ -266,7 +282,8 @@ stacks/actual/
 │   ├── bin/actual.mjs       # subcommand dispatcher
 │   ├── src/commands/        # fetch, analyze, subs, categorize
 │   ├── src/lib/             # shared env loader, Actual client wrapper, paths
-│   └── config/              # categorization.json + budget.json
+│   └── config/              # account/import contracts + category group bootstrap
+├── runbooks/                # weekly review, month close, backup and restore
 └── db-sync/                 # SQLite read-replica writer container
     ├── Dockerfile           # build context is stacks/actual/, copies cli + db-sync
     ├── package.json
@@ -287,3 +304,14 @@ stacks/monitoring/
 - **Pipeline dashboard says fetch is stale** — run the FinTS import workflow above. The dashboard turns yellow at 24h, red at 48h.
 - **Categorize dry-run shows huge change count** — likely a recent edit to `categorization.json` re-shuffled rule precedence. Spend-impacting rules (Brokerage, Internal Transfer) should appear before broader rules.
 - **`actual subs` finds nothing** — your credit-card data window may be too short. Detection requires ≥3 occurrences of the same payee. Re-run after a few months of imports.
+
+## Budget migration status
+
+Actual's native envelope balances are the target source of truth. The checked-in
+`cli/config/budget.json` is retained temporarily as migration input because the
+live category moves, schedules, envelope funding, and reconciliation require
+review in Actual. Do not edit it for routine budgeting. Delete it only after
+all active legacy targets have corresponding funded Actual envelopes, transfer
+categories have been removed from expense budgeting, sinking-fund rollover has
+been confirmed, and Actual reconciles. Until then, any SQLite `budgets` data is
+legacy and must not drive safe-to-spend.

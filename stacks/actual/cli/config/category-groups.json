@@ -1,0 +1,28 @@
+{
+  "groups": [
+    {
+      "role": "fixed_obligation",
+      "name": "Fixed obligations"
+    },
+    {
+      "role": "flexible_essential",
+      "name": "Flexible essentials"
+    },
+    {
+      "role": "discretionary",
+      "name": "Discretionary"
+    },
+    {
+      "role": "sinking_fund",
+      "name": "Sinking funds"
+    },
+    {
+      "role": "savings_investing",
+      "name": "Savings and investing"
+    },
+    {
+      "role": "income",
+      "name": "Income"
+    }
+  ]
+}
