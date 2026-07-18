@@ -81,10 +81,12 @@ Each transaction in the output:
 }
 ```
 
-Re-runs are idempotent. The importer namespaces the raw reference by source and
-account, then qualifies it with a normalized stable-content fingerprint. This
-matters for banks that reuse placeholder references such as `STARTUMS`: distinct
-transactions remain distinct, while a repeated fetch produces the same IDs.
+Re-runs are idempotent. A strong bank reference is namespaced by source and
+account and remains the primary identity across pending-to-booked metadata
+changes. Known weak placeholders such as `STARTUMS` are not trusted as unique:
+pending weak-reference rows are quarantined until booked, then qualified using
+booked-stable date, amount, currency, payee, and purpose fields. Distinct booked
+transactions remain distinct while a repeated fetch produces the same IDs.
 
 ## Step 3 — import into Actual via the Node sidecar
 
@@ -134,6 +136,9 @@ The importer:
 - Loads `banks.toml`, finds the IBAN→Actual-account-UUID mapping for the requested bank.
 - Skips any IBAN not listed (or still set to `REPLACE-...`).
 - Maps each fetched transaction into Actual's `importTransactions` shape (cents already signed, `imported_id` for dedup, `cleared = (status === 'BOOK')`).
+- Holds pending transactions carrying known weak/reused placeholder references
+  out of Actual until the bank reports them booked; the manifest counts them as
+  quarantined rather than inventing a lifecycle identity.
 - Before its first canonical write, reads the account history and migrates an
   exact, unique legacy-ID/content match in place. Ambiguous legacy matches are
   quarantined and abort the whole run before any write; deleted transactions

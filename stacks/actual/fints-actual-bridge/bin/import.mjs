@@ -10,7 +10,7 @@ import { parseArgs } from 'node:util';
 import * as actual from '@actual-app/api';
 import * as toml from 'smol-toml';
 
-import { canonicalImportedId, toActualTransaction } from '../src/importer/canonical.mjs';
+import { canonicalImportedId, isWeakSourceReference, toActualTransaction } from '../src/importer/canonical.mjs';
 import { writeRunManifest } from '../src/importer/manifest.mjs';
 import { validateOwnership } from '../src/importer/registry.mjs';
 import { validateBatch } from '../src/importer/validate.mjs';
@@ -168,7 +168,10 @@ export async function runImport({
         }
 
         const rawTransactions = sourceAccount.transactions ?? [];
-        const transactions = [...rawTransactions];
+        const pendingWeak = rawTransactions.filter((transaction) =>
+          isWeakSourceReference(transaction.imported_id) && transaction.status !== 'BOOK');
+        const transactions = rawTransactions.filter((transaction) =>
+          !isWeakSourceReference(transaction.imported_id) || transaction.status === 'BOOK');
         if (seedBalance) {
           const opening = (sourceAccount.balances ?? []).find((balance) => balance.type === 'OPBD');
           if (opening && safeIsoDate(opening.date) && Number.isFinite(opening.amount_cents)) {
@@ -194,16 +197,16 @@ export async function runImport({
         if (transactions.length > rawTransactions.length) records[0].imported_payee = 'Opening Balance';
         const summary = {
           actual_account_id: mapping.actual_account_id,
-          fetched: transactions.length,
+          fetched: rawTransactions.length,
           valid: 0,
           added: 0,
           updated: 0,
-          quarantined: 0,
+          quarantined: pendingWeak.length,
         };
         accounts.push(summary);
         const validated = validateBatch(records, { previousCount: transactions.length });
         summary.valid = validated.records.length;
-        summary.quarantined = validated.duplicateCandidates.length;
+        summary.quarantined += validated.duplicateCandidates.length;
         batches.push({ bankKey, actualAccountId: mapping.actual_account_id, records: validated.records, items, summary });
         recordsByActualId.set(mapping.actual_account_id,
           (recordsByActualId.get(mapping.actual_account_id) ?? []).concat(validated.records));

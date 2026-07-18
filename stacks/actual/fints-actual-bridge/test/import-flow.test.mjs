@@ -247,7 +247,7 @@ test('seed balance prepends the stable canonical opening balance transaction', a
     manifestDir, seedBalance: true,
     now: () => new Date('2026-07-18T10:00:00.000Z'),
   });
-  assert.match(records[0].imported_id, /^fints-fixture:fixture-cash:fints-bridge-opening-balance-actual-account-1~[a-f0-9]{24}$/u);
+  assert.equal(records[0].imported_id, 'fints-fixture:fixture-cash:fints-bridge-opening-balance-actual-account-1');
   delete records[0].imported_id;
   assert.deepEqual(records[0], {
     date: '2026-06-30', amount: 5000, payee_name: 'Opening Balance',
@@ -444,6 +444,140 @@ test('nine reused references import once and a repeated fetch performs no duplic
   assert.equal(stored.length, 9);
   assert.equal(new Set(stored.map(({ imported_id: id }) => id)).size, 9);
   assert.equal(added, 9);
+});
+
+test('pending weak reference is quarantined without writes and booked lifecycle imports once', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const weak = {
+    ...transaction, imported_id: 'STARTUMS', status: 'PDNG',
+    value_date: '2026-07-01', payee_name: 'Pending card purchase', notes: 'Pending',
+  };
+  const lifecyclePayload = structuredClone(payload);
+  lifecyclePayload.accounts[0].transactions = [weak];
+  const stored = [];
+  const writes = [];
+  const actualApi = {
+    async getTransactions() { return structuredClone(stored); },
+    async importTransactions(_account, records, options) {
+      writes.push(structuredClone(records));
+      for (const record of records) {
+        if (!stored.some((existing) => existing.imported_id === record.imported_id)) stored.push({ id: 'stored', ...record });
+      }
+      return { added: records, updated: [], errors: [] };
+    },
+  };
+  const pendingManifest = await runImport({ lifecyclePayload, payload: lifecyclePayload, config, registry, actualApi, manifestDir });
+  assert.equal(pendingManifest.accounts[0].fetched, 1);
+  assert.equal(pendingManifest.accounts[0].quarantined, 1);
+  assert.equal(pendingManifest.accounts[0].valid, 0);
+  assert.deepEqual(writes, []);
+
+  lifecyclePayload.accounts[0].transactions = [{
+    ...weak, imported_id: 'FINAL-STRONG-REF', status: 'BOOK', value_date: '2026-07-03',
+    payee_name: 'Cafe Berlin', notes: 'Terminal 987', account_servicer_ref: 'FINAL',
+  }];
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    await runImport({
+      payload: structuredClone(lifecyclePayload), config, registry, actualApi,
+      manifestDir: await mkdtemp(join(tmpdir(), 'import-flow-')),
+    });
+  }
+  assert.equal(stored.length, 1);
+  assert.equal(writes.length, 2);
+});
+
+test('indistinguishable booked weak-reference rows fail closed with zero writes', async () => {
+  const ambiguousPayload = structuredClone(payload);
+  const weak = { ...transaction, imported_id: 'STARTUMS', status: 'BOOK' };
+  ambiguousPayload.accounts[0].transactions = [weak, structuredClone(weak)];
+  const writes = [];
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  await assert.rejects(() => runImport({
+    payload: ambiguousPayload, config, registry, manifestDir,
+    actualApi: {
+      async getTransactions() { return []; },
+      async importTransactions(...args) { writes.push(args); },
+    },
+  }), /validation failed/i);
+  assert.deepEqual(writes, []);
+});
+
+test('changed depot value updates the same row exactly once', async () => {
+  const setup = depotSetup();
+  setup.payload.accounts[0].holdings[0].total_value_cents = 20000;
+  const updates = [];
+  const actualApi = {
+    async getTransactions() {
+      return [
+        { id: 'base', imported_id: 'bank-transfer', amount: 1000 },
+        { id: 'valuation', imported_id: 'fints-bridge-depot-revaluation-depot-1', amount: 14000 },
+      ];
+    },
+    async updateTransaction(id, fields) { updates.push([id, fields]); return []; },
+    async importTransactions() { throw new Error('must update existing row'); },
+  };
+  await runImport({ ...setup, actualApi, manifestDir: await mkdtemp(join(tmpdir(), 'import-flow-')) });
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0][0], 'valuation');
+  assert.equal(updates[0][1].amount, 19000);
+});
+
+test('multiple prior depot adjustments fail before any write', async () => {
+  const setup = depotSetup();
+  const writes = [];
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  await assert.rejects(() => runImport({
+    ...setup, manifestDir,
+    actualApi: {
+      async getTransactions() {
+        return [
+          { id: 'one', imported_id: 'fints-bridge-depot-revaluation-old', amount: 1000 },
+          { id: 'two', imported_id: 'fints-bridge-depot-revaluation-new', amount: 2000 },
+        ];
+      },
+      async updateTransaction(...args) { writes.push(['update', ...args]); },
+      async importTransactions(...args) { writes.push(['import', ...args]); },
+    },
+  }), /validation failed/i);
+  assert.deepEqual(writes, []);
+});
+
+test('later-account legacy ambiguity prevents earlier-account migration globally', async () => {
+  const twoConfig = { banks: { fixture: { accounts: [
+    { iban: 'FIRST', actual_account_id: 'first-account' },
+    { iban: 'SECOND', actual_account_id: 'second-account' },
+  ] } } };
+  const twoRegistry = [
+    { actual_account_id: 'first-account', source: 'fints-fixture', source_account: 'first', enabled: true },
+    { actual_account_id: 'second-account', source: 'fints-fixture', source_account: 'second', enabled: true },
+  ];
+  const firstTx = { ...transaction, imported_id: 'FIRST-RAW' };
+  const secondTx = { ...transaction, imported_id: 'SECOND-RAW' };
+  const twoPayload = { bank: { key: 'fixture' }, accounts: [
+    { iban: 'FIRST', transactions: [firstTx] },
+    { iban: 'SECOND', transactions: [secondTx] },
+  ] };
+  const writes = [];
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  await assert.rejects(() => runImport({
+    payload: twoPayload, config: twoConfig, registry: twoRegistry,
+    manifestDir,
+    actualApi: {
+      async getTransactions(account) {
+        const source = account === 'first-account' ? firstTx : secondTx;
+        const base = {
+          imported_id: source.imported_id, date: source.date, amount: source.amount_cents,
+          imported_payee: source.notes, notes: source.notes,
+        };
+        return account === 'first-account'
+          ? [{ id: 'first-legacy', ...base }]
+          : [{ id: 'second-a', ...base }, { id: 'second-b', ...base }];
+      },
+      async updateTransaction(...args) { writes.push(['update', ...args]); },
+      async importTransactions(...args) { writes.push(['import', ...args]); },
+    },
+  }), /validation failed/i);
+  assert.deepEqual(writes, []);
 });
 
 function toActualForTest(sourceTransaction) {

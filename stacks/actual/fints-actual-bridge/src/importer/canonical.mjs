@@ -8,17 +8,26 @@ function normalized(value) {
 
 export function transactionFingerprint(transaction) {
   const stableFields = [
-    transaction.date, transaction.value_date, transaction.amount_cents, transaction.currency,
-    transaction.payee_name, transaction.notes, transaction.end_to_end_id,
-    transaction.account_servicer_ref,
+    transaction.date, transaction.amount_cents, transaction.currency,
+    transaction.payee_name, transaction.notes,
   ].map(normalized).join('\u0000');
   return createHash('sha256').update(stableFields).digest('hex').slice(0, 24);
+}
+
+const WEAK_REFERENCES = new Set([
+  'STARTUMS', 'NONREF', 'NOREF', 'NOTPROVIDED', 'NOT PROVIDED', 'UNKNOWN', 'NONE', 'N/A',
+]);
+
+export function isWeakSourceReference(value) {
+  return WEAK_REFERENCES.has(String(value ?? '').normalize('NFKC').trim().toUpperCase());
 }
 
 export function canonicalSourceTransactionId(transaction) {
   const supplied = String(transaction?.imported_id ?? '').trim();
   if (!supplied) throw new Error('sourceTransactionId is required');
-  return `${supplied}~${transactionFingerprint(transaction)}`;
+  return isWeakSourceReference(supplied)
+    ? `${supplied}~${transactionFingerprint(transaction)}`
+    : supplied;
 }
 
 export function canonicalImportedId({ source, sourceAccount, sourceTransactionId }) {

@@ -23,7 +23,7 @@ test('transaction conversion preserves bank data and canonicalizes identity', ()
       status: 'BOOK',
     },
   });
-  assert.match(actual.imported_id, /^fints%20umwelt:card%3A1:CARD%2F001~[a-f0-9]{24}$/u);
+  assert.equal(actual.imported_id, 'fints%20umwelt:card%3A1:CARD%2F001');
   delete actual.imported_id;
   assert.deepEqual(actual, {
     date: '2026-07-08',
@@ -77,4 +77,41 @@ test('booking status transition keeps the same identity', () => {
   assert.equal(pending.imported_id, booked.imported_id);
   assert.equal(pending.cleared, false);
   assert.equal(booked.cleared, true);
+});
+
+test('strong bank reference remains primary when lifecycle metadata changes', () => {
+  const pending = toActualTransaction({
+    source: 'fints-umwelt', sourceAccount: 'card', transaction: {
+      date: '2026-07-08', value_date: '2026-07-08', amount_cents: -1299,
+      imported_id: 'STRONG-REF-123', account_servicer_ref: 'TEMP-REF',
+      payee_name: 'Pending card purchase', notes: 'Pending', currency: 'EUR', status: 'PDNG',
+    },
+  });
+  const booked = toActualTransaction({
+    source: 'fints-umwelt', sourceAccount: 'card', transaction: {
+      date: '2026-07-08', value_date: '2026-07-10', amount_cents: -1299,
+      imported_id: 'STRONG-REF-123', account_servicer_ref: 'FINAL-REF',
+      payee_name: 'Cafe Berlin', notes: 'Terminal 987', currency: 'EUR', status: 'BOOK',
+    },
+  });
+  assert.equal(pending.imported_id, booked.imported_id);
+  assert.equal(booked.imported_id, 'fints-umwelt:card:STRONG-REF-123');
+});
+
+test('weak booked identity ignores non-stable value and servicer metadata', () => {
+  const base = {
+    date: '2026-07-08', amount_cents: -1299, imported_id: 'STARTUMS',
+    payee_name: 'Cafe Berlin', notes: 'Terminal 987', currency: 'EUR', status: 'BOOK',
+  };
+  const first = toActualTransaction({
+    source: 'fints-baader', sourceAccount: 'cash', transaction: {
+      ...base, value_date: '2026-07-09', account_servicer_ref: 'STARTUMS',
+    },
+  });
+  const refetched = toActualTransaction({
+    source: 'fints-baader', sourceAccount: 'cash', transaction: {
+      ...base, value_date: '2026-07-11', account_servicer_ref: 'NEW-METADATA',
+    },
+  });
+  assert.equal(first.imported_id, refetched.imported_id);
 });
