@@ -13,3 +13,4 @@ matter-server/
 ledfx-config/
 cache/
 ledfx.log*
+.worktrees/
