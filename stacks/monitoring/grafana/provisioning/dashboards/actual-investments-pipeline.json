@@ -1,0 +1,74 @@
+{
+  "annotations": { "list": [] }, "editable": true, "graphTooltip": 1,
+  "links": [{ "title": "Home", "type": "link", "url": "/d/actual-home" }, { "title": "Monthly analysis", "type": "link", "url": "/d/actual-monthly" }],
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Contributions", "description": "EUR. Canonical transfers from on-budget accounts to off-budget savings/investment accounts in the current month; requires finance trust.",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN SUM(s.amount_cents)/100.0 END AS value FROM savings_contributions s CROSS JOIN finance_trust f WHERE s.month=strftime('%Y-%m','now')" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Portfolio value", "description": "EUR. Sum of the current holdings snapshot, not investment performance or tax-lot value; valuation freshness is shown separately.",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN SUM(h.total_value_cents)/100.0 END AS value FROM holdings h CROSS JOIN finance_trust f" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Holdings valued", "description": "Latest valuation date reported by any current holding. Compare it with source freshness before using portfolio totals.",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT COALESCE(MAX(valuation_date),'No holdings snapshot') AS value FROM holdings" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Pipeline issues", "description": "Count now. Unresolved quarantines plus unresolved duplicate candidates and non-zero reconciliation gaps; inspect detail panels below.",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT (SELECT COALESCE(SUM(quarantined),0) FROM pipeline_runs WHERE resolved=0)+(SELECT COUNT(*) FROM data_quality WHERE resolved=0 AND (kind='duplicate_candidate' OR (kind='reconciliation_gap' AND COALESCE(value_cents,0)<>0))) AS value" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Reported portfolio value over time", "description": "EUR at each holdings snapshot. This is reported market value only; it is not a return series and does not adjust for contributions.",
+      "gridPos": { "x": 0, "y": 4, "w": 14, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "time series", "rawQueryText": "SELECT snapshot_unix AS time,SUM(total_value_cents)/100.0 AS \"Portfolio EUR\" FROM holdings_history GROUP BY snapshot_unix ORDER BY snapshot_unix", "timeColumns": ["time"] }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" }, "custom": { "lineWidth": 2, "showPoints": "auto" } }, "overrides": [] }, "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } }
+    },
+    {
+      "id": 6, "type": "barchart", "title": "Current portfolio allocation", "description": "EUR by current holding, sorted largest first. Exact values and names distinguish holdings; this is allocation, not performance.",
+      "gridPos": { "x": 14, "y": 4, "w": 10, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT name AS Holding,total_value_cents/100.0 AS \"Value EUR\" FROM holdings ORDER BY total_value_cents DESC" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] }, "options": { "orientation": "horizontal", "showValue": "always", "legend": { "showLegend": false } }
+    },
+    {
+      "id": 7, "type": "table", "title": "Expected source coverage and freshness", "description": "Latest run per expected source, evaluated now. Status text, run outcome, age, and expected cadence make missing or stale coverage explicit.",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest_runs AS (SELECT p.* FROM pipeline_runs p WHERE p.finished_at=(SELECT MAX(q.finished_at) FROM pipeline_runs q WHERE q.source=p.source)) SELECT e.source AS Source,l.finished_at AS \"Latest run UTC\",l.outcome AS Outcome,ROUND((strftime('%s','now')-strftime('%s',l.finished_at))/3600.0,1) AS \"Age hours\",ROUND(e.expected_cadence_seconds/3600.0,1) AS \"Expected hours\",CASE WHEN l.run_id IS NULL THEN 'MISSING' WHEN e.expected_cadence_seconds IS NULL THEN 'NO CADENCE' WHEN strftime('%s','now')-strftime('%s',l.finished_at)>e.expected_cadence_seconds THEN 'STALE' ELSE 'CURRENT' END AS Status FROM expected_sources e LEFT JOIN latest_runs l ON l.source=e.source ORDER BY Status DESC,e.source" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Pipeline runs and quarantined records", "description": "Counts/day over the last 30 days. Completed runs and quarantined records use separate labels and line styles; inspect source coverage for cadence.",
+      "gridPos": { "x": 0, "y": 20, "w": 14, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "time series", "rawQueryText": "WITH run_days AS (SELECT date(finished_at) day,COUNT(*) runs,SUM(quarantined) quarantined FROM pipeline_runs WHERE finished_at>=datetime('now','-30 days') GROUP BY date(finished_at)) SELECT CAST(strftime('%s',day) AS INTEGER) time,runs AS Runs,quarantined AS Quarantined FROM run_days ORDER BY day", "timeColumns": ["time"] }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" }, "custom": { "lineWidth": 2 } }, "overrides": [{ "matcher": { "id": "byName", "options": "Quarantined" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, { "id": "custom.lineStyle", "value": { "dash": [10,10], "fill": "dash" } }] }] }, "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } }
+    },
+    {
+      "id": 9, "type": "table", "title": "Recent pipeline run detail", "description": "Most recent 30 runs with source, timestamps, fetched/valid/add/update/quarantine counts, outcome, error code, and resolution status.",
+      "gridPos": { "x": 14, "y": 20, "w": 10, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT source AS Source,finished_at AS \"Finished UTC\",fetched AS Fetched,valid AS Valid,added AS Added,updated AS Updated,quarantined AS Quarantined,outcome AS Outcome,COALESCE(error_code,'') AS Error,CASE resolved WHEN 1 THEN 'RESOLVED' ELSE 'OPEN' END AS Status FROM pipeline_runs ORDER BY finished_at DESC LIMIT 30" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
+    },
+    {
+      "id": 10, "type": "table", "title": "Unresolved duplicate candidates", "description": "Current unresolved data-quality checks classified as duplicate candidates. Review the source and detail; no rows means none are known.",
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 7 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT checked_at AS \"Checked UTC\",COALESCE(source,'') AS Source,COALESCE(account_id,'') AS Account,detail AS Detail FROM data_quality WHERE kind='duplicate_candidate' AND resolved=0 ORDER BY checked_at DESC" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
+    },
+    {
+      "id": 11, "type": "table", "title": "Unresolved reconciliation gaps", "description": "Current non-zero unresolved reconciliation checks. Gap is EUR; use account and detail fields to reconcile before trusting finance totals.",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 7 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT checked_at AS \"Checked UTC\",COALESCE(source,'') AS Source,COALESCE(account_id,'') AS Account,value_cents/100.0 AS \"Gap EUR\",detail AS Detail FROM data_quality WHERE kind='reconciliation_gap' AND resolved=0 AND COALESCE(value_cents,0)<>0 ORDER BY ABS(value_cents) DESC" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } }, "unit": "short" }, "overrides": [{ "matcher": { "id": "byName", "options": "Gap EUR" }, "properties": [{ "id": "unit", "value": "currencyEUR" }] }] }, "options": { "showHeader": true }
+    }
+  ],
+  "refresh": "15m", "schemaVersion": 39, "tags": ["actual", "investments", "pipeline"], "templating": { "list": [] },
+  "time": { "from": "now-12M", "to": "now" }, "timezone": "browser", "title": "Actual — Investments & Pipeline", "uid": "actual-investments-pipeline", "version": 1
+}

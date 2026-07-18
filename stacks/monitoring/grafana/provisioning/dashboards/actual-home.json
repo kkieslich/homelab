@@ -1,233 +1,92 @@
 {
-  "id": null,
-  "uid": "actual-home",
-  "title": "Actual — Home",
-  "tags": ["actual", "finance", "home"],
-  "schemaVersion": 39,
-  "version": 1,
+  "annotations": { "list": [] },
   "editable": true,
-  "style": "dark",
-  "timezone": "",
-  "refresh": "5m",
-  "time": { "from": "now-90d", "to": "now" },
-  "timepicker": {},
+  "graphTooltip": 1,
   "links": [
-    { "type": "link", "title": "Cash Flow",   "url": "/d/actual-cashflow",    "targetBlank": false, "icon": "dashboard", "tags": [] },
-    { "type": "link", "title": "Spending",    "url": "/d/actual-spending",    "targetBlank": false, "icon": "dashboard", "tags": [] },
-    { "type": "link", "title": "Recurring",   "url": "/d/actual-recurring",   "targetBlank": false, "icon": "dashboard", "tags": [] },
-    { "type": "link", "title": "Investments", "url": "/d/actual-investments", "targetBlank": false, "icon": "dashboard", "tags": [] },
-    { "type": "link", "title": "Pipeline",    "url": "/d/actual-pipeline",    "targetBlank": false, "icon": "dashboard", "tags": [] }
+    { "title": "Monthly analysis", "type": "link", "url": "/d/actual-monthly" },
+    { "title": "Investments & pipeline", "type": "link", "url": "/d/actual-investments-pipeline" }
   ],
   "panels": [
     {
-      "id": 1,
-      "type": "stat",
-      "title": "Net worth (everything)",
+      "id": 1, "type": "stat", "title": "Finance projection trust", "description": "Authoritative trust gate evaluated at query time. TRUSTED means every expected source, reconciliation, quarantine, and review-queue gate currently passes.",
       "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT SUM(balance_cents) / 100.0 AS value FROM accounts WHERE NOT closed"
-      }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 } },
-      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT trusted AS value FROM finance_trust" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "#E5AC0E" }, "mappings": [{ "type": "value", "options": { "0": { "text": "DO NOT USE", "color": "#E5AC0E", "index": 0 }, "1": { "text": "TRUSTED", "color": "#3274D9", "index": 1 } } }] }, "overrides": [] },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
     },
     {
-      "id": 2,
-      "type": "stat",
-      "title": "Liquid (on-budget cash)",
-      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+      "id": 2, "type": "table", "title": "Trust gate reasons", "description": "Machine-readable reasons from the finance trust view, evaluated now. An empty JSON array means no active trust failure.",
+      "gridPos": { "x": 8, "y": 0, "w": 16, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT SUM(balance_cents) / 100.0 AS value FROM accounts WHERE NOT closed AND NOT offbudget"
-      }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 } },
-      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE trusted WHEN 1 THEN 'No active failures' ELSE reasons END AS \"Current trust status / reasons\" FROM finance_trust" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
     },
     {
-      "id": 3,
-      "type": "stat",
-      "title": "Investments (depot value)",
-      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "id": 3, "type": "stat", "title": "Net worth — close", "description": "EUR. Sum of all accounts from the latest immutable month-close capture; the capture timestamp is returned with the value.",
+      "gridPos": { "x": 0, "y": 4, "w": 6, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT COALESCE(SUM(total_value_cents), 0) / 100.0 AS value FROM holdings"
-      }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 } },
-      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest_capture AS (SELECT MAX(captured_at) captured_at FROM net_worth_snapshots) SELECT SUM(n.balance_cents) / 100.0 AS value, MAX(n.captured_at) AS captured_at FROM net_worth_snapshots n JOIN latest_capture l ON l.captured_at=n.captured_at" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value_and_name" }
     },
     {
-      "id": 4,
-      "type": "stat",
-      "title": "This month income",
-      "gridPos": { "x": 0, "y": 4, "w": 8, "h": 4 },
+      "id": 4, "type": "stat", "title": "Liquid — close", "description": "EUR. On-budget, open accounts from the same latest immutable month-close capture; current account metadata only identifies liquid accounts.",
+      "gridPos": { "x": 6, "y": 4, "w": 6, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT COALESCE(SUM(amount_cents), 0) / 100.0 AS value FROM income WHERE month = strftime('%Y-%m', 'now')"
-      }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "fixedColor": "green", "mode": "fixed" } } },
-      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest_capture AS (SELECT MAX(captured_at) captured_at FROM net_worth_snapshots) SELECT SUM(n.balance_cents) / 100.0 AS value, MAX(n.captured_at) AS captured_at FROM net_worth_snapshots n JOIN latest_capture l ON l.captured_at=n.captured_at JOIN accounts a ON a.id=n.account_id WHERE a.offbudget=0 AND a.closed=0" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value_and_name" }
     },
     {
-      "id": 5,
-      "type": "stat",
-      "title": "This month spend",
-      "gridPos": { "x": 8, "y": 4, "w": 8, "h": 4 },
+      "id": 5, "type": "stat", "title": "Safe — month", "description": "EUR, current month. Positive discretionary availability minus essential underfunding, only when finance trust passes. Unpaid schedules are not projected and are excluded.",
+      "gridPos": { "x": 12, "y": 4, "w": 4, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT COALESCE(-SUM(amount_cents), 0) / 100.0 AS value FROM spending WHERE month = strftime('%Y-%m', 'now')"
-      }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "fixedColor": "red", "mode": "fixed" } } },
-      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN (SUM(CASE WHEN b.category_role='discretionary' AND b.balance_cents>0 THEN b.balance_cents ELSE 0 END)-SUM(CASE WHEN b.category_role='essential' AND b.balance_cents<0 THEN -b.balance_cents ELSE 0 END))/100.0 END AS value FROM current_budgets b CROSS JOIN finance_trust f WHERE b.month=strftime('%Y-%m','now')" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
-      "id": 6,
-      "type": "stat",
-      "title": "This month net",
-      "gridPos": { "x": 16, "y": 4, "w": 8, "h": 4 },
+      "id": 6, "type": "stat", "title": "Safe — day", "description": "EUR/day through month end, including today. Non-negative current-month safe-to-spend divided by remaining calendar days; excludes unpaid schedules and requires finance trust.",
+      "gridPos": { "x": 16, "y": 4, "w": 4, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT ((SELECT COALESCE(SUM(amount_cents), 0) FROM income WHERE month = strftime('%Y-%m', 'now')) + (SELECT COALESCE(SUM(amount_cents), 0) FROM spending WHERE month = strftime('%Y-%m', 'now'))) / 100.0 AS value"
-      }],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyEUR", "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "red", "value": null },
-            { "color": "green", "value": 0 }
-          ]}
-        }
-      },
-      "options": { "colorMode": "value", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN MAX(0,SUM(CASE WHEN b.category_role='discretionary' AND b.balance_cents>0 THEN b.balance_cents ELSE 0 END)-SUM(CASE WHEN b.category_role='essential' AND b.balance_cents<0 THEN -b.balance_cents ELSE 0 END))/100.0/(julianday(date('now','start of month','+1 month'))-julianday(date('now'))) END AS value FROM current_budgets b CROSS JOIN finance_trust f WHERE b.month=strftime('%Y-%m','now')" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
-      "id": 7,
-      "type": "stat",
-      "title": "Needs Review",
-      "description": "On-budget transactions with no category or the Needs Review fallback.",
-      "gridPos": { "x": 0, "y": 8, "w": 6, "h": 3 },
+      "id": 7, "type": "stat", "title": "Savings rate", "description": "Percent. Canonical investment contributions divided by ordinary income for the current month; null when income is zero or finance trust fails.",
+      "gridPos": { "x": 20, "y": 4, "w": 4, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT COUNT(*) AS value FROM transactions WHERE (category_id IS NULL OR category_name = 'Needs Review') AND account_offbudget = 0 AND transfer_id IS NULL"
-      }],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "green", "value": null },
-            { "color": "yellow", "value": 1 },
-            { "color": "red", "value": 20 }
-          ]}
-        }
-      },
-      "options": { "colorMode": "background", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 AND i.value_cents>0 THEN 100.0*s.value_cents/i.value_cents END AS value FROM (SELECT COALESCE(SUM(amount_cents),0) value_cents FROM ordinary_income WHERE month=strftime('%Y-%m','now')) i CROSS JOIN (SELECT COALESCE(SUM(amount_cents),0) value_cents FROM savings_contributions WHERE month=strftime('%Y-%m','now')) s CROSS JOIN finance_trust f" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
-      "id": 8,
-      "type": "stat",
-      "title": "Stale subscriptions",
-      "description": "Detected subscriptions that haven't fired in their expected window. Cancellation candidates.",
-      "gridPos": { "x": 6, "y": 8, "w": 6, "h": 3 },
+      "id": 8, "type": "stat", "title": "Open review queue", "description": "Count now. On-budget, non-transfer transactions missing a category or normalized payee in the canonical review queue.",
+      "gridPos": { "x": 0, "y": 8, "w": 6, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT COUNT(*) AS value FROM subscriptions WHERE is_active = 0"
-      }],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "green", "value": null },
-            { "color": "yellow", "value": 1 }
-          ]}
-        }
-      },
-      "options": { "colorMode": "background", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT COUNT(*) AS value FROM review_queue" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
-      "id": 9,
-      "type": "stat",
-      "title": "Banks with stale imports (>48h)",
-      "description": "Banks whose last successful FinTS fetch was more than 48 hours ago.",
-      "gridPos": { "x": 12, "y": 8, "w": 6, "h": 3 },
+      "id": 9, "type": "barchart", "title": "Current envelope funding and consumption by role", "description": "EUR, current budget month. Budgeted amount and absolute spend grouped by canonical role; exact values are available in tooltips.",
+      "gridPos": { "x": 6, "y": 8, "w": 18, "h": 8 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT COUNT(*) AS value FROM pipeline_status WHERE source != 'sync' AND (strftime('%s', 'now') - strftime('%s', last_run_iso)) > 172800"
-      }],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "green", "value": null },
-            { "color": "red", "value": 1 }
-          ]}
-        }
-      },
-      "options": { "colorMode": "background", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT category_role AS role, SUM(budgeted_cents)/100.0 AS \"Funded EUR\", ABS(SUM(spent_cents))/100.0 AS \"Consumed EUR\" FROM current_budgets WHERE month=strftime('%Y-%m','now') GROUP BY category_role ORDER BY category_role" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 }, "overrides": [{ "matcher": { "id": "byName", "options": "Funded EUR" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3274D9" } }] }, { "matcher": { "id": "byName", "options": "Consumed EUR" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E5AC0E" } }] }] },
+      "options": { "orientation": "horizontal", "showValue": "always", "stacking": "none", "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } }
     },
     {
-      "id": 10,
-      "type": "stat",
-      "title": "New payees this week",
-      "description": "Payee names that first appeared in the last 7 days. Worth a glance to catch new recurring charges.",
-      "gridPos": { "x": 18, "y": 8, "w": 6, "h": 3 },
+      "id": 10, "type": "table", "title": "Expected source freshness", "description": "Latest run per expected source, evaluated now. Age and expected cadence are hours; status text distinguishes current, stale, and missing without relying on color.",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "SELECT COUNT(DISTINCT payee_name) AS value FROM transactions WHERE payee_name IS NOT NULL AND date >= date('now', '-7 days') AND payee_name NOT IN (SELECT DISTINCT payee_name FROM transactions WHERE payee_name IS NOT NULL AND date < date('now', '-7 days'))"
-      }],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "green", "value": null },
-            { "color": "blue", "value": 1 }
-          ]}
-        }
-      },
-      "options": { "colorMode": "background", "textMode": "value", "reduceOptions": { "calcs": ["last"] } }
-    },
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "Net worth over time (cash + investments)",
-      "description": "On-budget cash is the running total of all on-budget transactions. Investments comes from holdings_history snapshots taken on every Baader fetch.",
-      "gridPos": { "x": 0, "y": 11, "w": 24, "h": 9 },
-      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [
-        {
-          "refId": "A", "queryType": "time series",
-          "rawQueryText": "SELECT ymd_unix AS time, SUM(SUM(amount_cents)) OVER (ORDER BY ymd_unix) / 100.0 AS \"On-budget cash\" FROM transactions WHERE NOT account_offbudget GROUP BY ymd_unix ORDER BY ymd_unix",
-          "timeColumns": ["time"]
-        },
-        {
-          "refId": "B", "queryType": "time series",
-          "rawQueryText": "SELECT snapshot_unix AS time, SUM(total_value_cents) / 100.0 AS \"Investments\" FROM holdings_history GROUP BY snapshot_unix ORDER BY snapshot_unix",
-          "timeColumns": ["time"]
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR" } },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["last"] } }
-    },
-    {
-      "id": 12,
-      "type": "table",
-      "title": "Recent unusual transactions (last 14 days, >2× payee average)",
-      "description": "Transactions in the last fortnight that are at least 2× the payee's 6-month average. Surfaces unexpected one-off charges from familiar payees.",
-      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
-      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{
-        "refId": "A", "queryType": "table",
-        "rawQueryText": "WITH payee_avg AS (SELECT payee_name, AVG(ABS(amount_cents)) AS avg_amt FROM spending WHERE date >= date('now', '-180 days') AND payee_name IS NOT NULL GROUP BY payee_name HAVING COUNT(*) >= 3) SELECT t.date AS Date, t.payee_name AS Payee, COALESCE(t.category_name, '(uncategorized)') AS Category, -t.amount_cents / 100.0 AS \"Amount (EUR)\", ROUND(p.avg_amt / 100.0, 2) AS \"Payee avg (EUR)\", COALESCE(t.notes, '') AS Notes FROM spending t JOIN payee_avg p ON t.payee_name = p.payee_name WHERE t.date >= date('now', '-14 days') AND ABS(t.amount_cents) > 2 * p.avg_amt ORDER BY ABS(t.amount_cents) DESC LIMIT 20"
-      }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 2 } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest_runs AS (SELECT p.* FROM pipeline_runs p WHERE p.finished_at=(SELECT MAX(q.finished_at) FROM pipeline_runs q WHERE q.source=p.source)) SELECT e.source AS Source, l.finished_at AS \"Latest run (UTC)\", ROUND((strftime('%s','now')-strftime('%s',l.finished_at))/3600.0,1) AS \"Age hours\", ROUND(e.expected_cadence_seconds/3600.0,1) AS \"Expected hours\", CASE WHEN l.run_id IS NULL THEN 'MISSING' WHEN e.expected_cadence_seconds IS NULL THEN 'NO CADENCE' WHEN strftime('%s','now')-strftime('%s',l.finished_at)>e.expected_cadence_seconds THEN 'STALE' ELSE 'CURRENT' END AS Status FROM expected_sources e LEFT JOIN latest_runs l ON l.source=e.source ORDER BY Status DESC,e.source" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
     }
-  ]
+  ],
+  "refresh": "15m", "schemaVersion": 39, "tags": ["actual", "finance", "trusted"],
+  "templating": { "list": [] }, "time": { "from": "now-24M", "to": "now" }, "timezone": "browser",
+  "title": "Actual — Home", "uid": "actual-home", "version": 1
 }

@@ -1,0 +1,79 @@
+{
+  "annotations": { "list": [] }, "editable": true, "graphTooltip": 1,
+  "links": [{ "title": "Home", "type": "link", "url": "/d/actual-home" }, { "title": "Investments & pipeline", "type": "link", "url": "/d/actual-investments-pipeline" }],
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Income — close", "description": "EUR. Ordinary income in the latest immutable closed budget month; requires the current finance trust gate to pass.",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest AS (SELECT MAX(month) month FROM budget_snapshots) SELECT CASE WHEN f.trusted=1 THEN SUM(i.amount_cents)/100.0 END AS value FROM ordinary_income i JOIN latest l ON l.month=i.month CROSS JOIN finance_trust f" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Spend — close", "description": "EUR. Absolute canonical consumption in the latest immutable closed budget month; requires the current finance trust gate to pass.",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest AS (SELECT MAX(month) month FROM budget_snapshots) SELECT CASE WHEN f.trusted=1 THEN ABS(SUM(c.amount_cents))/100.0 END AS value FROM consumption c JOIN latest l ON l.month=c.month CROSS JOIN finance_trust f" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Savings rate", "description": "Percent. Canonical contributions divided by ordinary income in the latest immutable closed budget month; null for zero income or failed trust.",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest AS (SELECT MAX(month) month FROM budget_snapshots), monthly AS (SELECT (SELECT COALESCE(SUM(amount_cents),0) FROM ordinary_income i WHERE i.month=l.month) income_cents,(SELECT COALESCE(SUM(amount_cents),0) FROM savings_contributions s WHERE s.month=l.month) saved_cents FROM latest l) SELECT CASE WHEN f.trusted=1 AND m.income_cents>0 THEN 100.0*m.saved_cents/m.income_cents END AS value FROM monthly m CROSS JOIN finance_trust f" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Contributions", "description": "EUR. Transfers from on-budget accounts into off-budget savings/investment accounts in the latest immutable closed budget month.",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest AS (SELECT MAX(month) month FROM budget_snapshots) SELECT CASE WHEN f.trusted=1 THEN SUM(s.amount_cents)/100.0 END AS value FROM savings_contributions s JOIN latest l ON l.month=s.month CROSS JOIN finance_trust f" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Monthly income, consumption, and contributions", "description": "EUR/month, trailing 24 months. Canonical ordinary income, absolute consumption, and investment contributions; lines require multiple months to infer a trend.",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 9 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [
+        { "refId": "A", "queryType": "time series", "rawQueryText": "SELECT CAST(strftime('%s',month||'-01') AS INTEGER) AS time, SUM(amount_cents)/100.0 AS \"Ordinary income\" FROM ordinary_income WHERE date>=date('now','-24 months','start of month') GROUP BY month ORDER BY month", "timeColumns": ["time"] },
+        { "refId": "B", "queryType": "time series", "rawQueryText": "SELECT CAST(strftime('%s',month||'-01') AS INTEGER) AS time, ABS(SUM(amount_cents))/100.0 AS Consumption FROM consumption WHERE date>=date('now','-24 months','start of month') GROUP BY month ORDER BY month", "timeColumns": ["time"] },
+        { "refId": "C", "queryType": "time series", "rawQueryText": "SELECT CAST(strftime('%s',month||'-01') AS INTEGER) AS time, SUM(amount_cents)/100.0 AS Contributions FROM savings_contributions WHERE date>=date('now','-24 months','start of month') GROUP BY month ORDER BY month", "timeColumns": ["time"] }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" }, "custom": { "lineWidth": 2, "showPoints": "auto" } }, "overrides": [{ "matcher": { "id": "byName", "options": "Consumption" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, { "id": "custom.lineStyle", "value": { "dash": [10,10], "fill": "dash" } }] }] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 6, "type": "barchart", "title": "Consumption mix by canonical role", "description": "EUR/month by role, trailing 12 months. Absolute consumption grouped by the six-group semantic layer; role names provide a non-color distinction.",
+      "gridPos": { "x": 0, "y": 13, "w": 24, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT month,ABS(SUM(CASE WHEN category_role='fixed' THEN amount_cents ELSE 0 END))/100.0 AS Fixed,ABS(SUM(CASE WHEN category_role='essential' THEN amount_cents ELSE 0 END))/100.0 AS Essential,ABS(SUM(CASE WHEN category_role='discretionary' THEN amount_cents ELSE 0 END))/100.0 AS Discretionary,ABS(SUM(CASE WHEN category_role='sinking_fund' THEN amount_cents ELSE 0 END))/100.0 AS \"Sinking funds\" FROM consumption WHERE date>=date('now','-12 months','start of month') GROUP BY month ORDER BY month" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] }, "options": { "stacking": "normal", "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "showValue": "auto" }
+    },
+    {
+      "id": 7, "type": "table", "title": "Month-over-month category drivers", "description": "EUR. Latest closed month versus its prior calendar month, ranked by absolute change in canonical consumption; missing prior activity is treated as zero.",
+      "gridPos": { "x": 0, "y": 21, "w": 12, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest AS (SELECT MAX(month) month FROM budget_snapshots), cur AS (SELECT category_name label,ABS(SUM(amount_cents)) cents FROM consumption WHERE month=(SELECT month FROM latest) GROUP BY category_name), prev AS (SELECT category_name label,ABS(SUM(amount_cents)) cents FROM consumption WHERE month=strftime('%Y-%m',date((SELECT month FROM latest)||'-01','-1 month')) GROUP BY category_name) SELECT cur.label AS Category,ROUND(cur.cents/100.0,2) AS \"Latest EUR\",ROUND(COALESCE(prev.cents,0)/100.0,2) AS \"Prior EUR\",ROUND((cur.cents-COALESCE(prev.cents,0))/100.0,2) AS \"Change EUR\" FROM cur LEFT JOIN prev ON prev.label=cur.label ORDER BY ABS(cur.cents-COALESCE(prev.cents,0)) DESC LIMIT 10" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
+    },
+    {
+      "id": 8, "type": "table", "title": "Month-over-month merchant drivers", "description": "EUR. Latest closed month versus its prior calendar month, ranked by absolute merchant-level consumption change; missing prior activity is zero.",
+      "gridPos": { "x": 12, "y": 21, "w": 12, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest AS (SELECT MAX(month) month FROM budget_snapshots), cur AS (SELECT COALESCE(payee_name,'(missing)') label,ABS(SUM(amount_cents)) cents FROM consumption WHERE month=(SELECT month FROM latest) GROUP BY payee_name), prev AS (SELECT COALESCE(payee_name,'(missing)') label,ABS(SUM(amount_cents)) cents FROM consumption WHERE month=strftime('%Y-%m',date((SELECT month FROM latest)||'-01','-1 month')) GROUP BY payee_name) SELECT cur.label AS Merchant,ROUND(cur.cents/100.0,2) AS \"Latest EUR\",ROUND(COALESCE(prev.cents,0)/100.0,2) AS \"Prior EUR\",ROUND((cur.cents-COALESCE(prev.cents,0))/100.0,2) AS \"Change EUR\" FROM cur LEFT JOIN prev ON prev.label=cur.label ORDER BY ABS(cur.cents-COALESCE(prev.cents,0)) DESC LIMIT 10" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Consumption and three-month rolling average", "description": "EUR/month, trailing 24 months. Monthly canonical consumption compared with a trailing three-observation average; at least three months are needed for a stable baseline.",
+      "gridPos": { "x": 0, "y": 29, "w": 14, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "time series", "rawQueryText": "WITH monthly AS (SELECT month,ABS(SUM(amount_cents))/100.0 value FROM consumption WHERE date>=date('now','-24 months','start of month') GROUP BY month) SELECT CAST(strftime('%s',month||'-01') AS INTEGER) time,value AS \"Consumption EUR\",AVG(value) OVER (ORDER BY month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS \"3-month average EUR\" FROM monthly ORDER BY month", "timeColumns": ["time"] }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" }, "custom": { "lineWidth": 2 } }, "overrides": [{ "matcher": { "id": "byName", "options": "3-month average EUR" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, { "id": "custom.lineStyle", "value": { "dash": [10,10], "fill": "dash" } }] }] }, "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } }
+    },
+    {
+      "id": 10, "type": "barchart", "title": "Annualized irregular-cost funding", "description": "EUR/year. Latest immutable close budget for sinking-fund categories multiplied by 12; this is planned funding, not a forecast of realized spend.",
+      "gridPos": { "x": 14, "y": 29, "w": 10, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest_capture AS (SELECT MAX(captured_at) captured_at FROM budget_snapshots) SELECT b.category_name AS Category,12.0*b.budgeted_cents/100.0 AS \"Annualized EUR\" FROM budget_snapshots b JOIN latest_capture l ON l.captured_at=b.captured_at WHERE b.category_role='sinking_fund' ORDER BY b.budgeted_cents DESC" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] }, "options": { "orientation": "horizontal", "showValue": "always", "legend": { "showLegend": false } }
+    },
+    {
+      "id": 11, "type": "table", "title": "Recent unusual consumption", "description": "Last 30 days. Consumption at least twice a merchant's 180-day average, using merchants with at least three observations; amounts and baseline are EUR.",
+      "gridPos": { "x": 0, "y": 37, "w": 24, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH payee_baseline AS (SELECT payee_name,AVG(ABS(amount_cents)) avg_cents,COUNT(*) observations FROM consumption WHERE date>=date('now','-180 days') AND payee_name IS NOT NULL GROUP BY payee_name HAVING COUNT(*)>=3) SELECT c.date AS Date,c.payee_name AS Merchant,c.category_name AS Category,ROUND(ABS(c.amount_cents)/100.0,2) AS \"Amount EUR\",ROUND(p.avg_cents/100.0,2) AS \"180-day average EUR\",ROUND(ABS(c.amount_cents)/p.avg_cents,1) AS Multiple,p.observations AS \"Baseline observations\" FROM consumption c JOIN payee_baseline p ON p.payee_name=c.payee_name WHERE c.date>=date('now','-30 days') AND ABS(c.amount_cents)>=2*p.avg_cents ORDER BY ABS(c.amount_cents)/p.avg_cents DESC LIMIT 20" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
+    }
+  ],
+  "refresh": "1h", "schemaVersion": 39, "tags": ["actual", "finance", "monthly"], "templating": { "list": [] },
+  "time": { "from": "now-24M", "to": "now" }, "timezone": "browser", "title": "Actual — Monthly Analysis", "uid": "actual-monthly", "version": 1
+}
