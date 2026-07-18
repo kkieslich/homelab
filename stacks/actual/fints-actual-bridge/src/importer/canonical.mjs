@@ -19,7 +19,8 @@ const WEAK_REFERENCES = new Set([
 ]);
 
 export function isWeakSourceReference(value) {
-  return WEAK_REFERENCES.has(String(value ?? '').normalize('NFKC').trim().toUpperCase());
+  const reference = String(value ?? '').normalize('NFKC').trim().toUpperCase();
+  return WEAK_REFERENCES.has(reference) || reference.startsWith('SYN_');
 }
 
 export function canonicalSourceTransactionId(transaction) {

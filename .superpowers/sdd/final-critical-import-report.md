@@ -93,7 +93,9 @@ atomicity behaviors; the tests now make them explicit regressions.
 
 - Classify evidenced non-unique placeholders (`STARTUMS`, `NONREF`, `NOREF`,
   `NOTPROVIDED`, `NOT PROVIDED`, `UNKNOWN`, `NONE`, and `N/A`) as weak
-  references. Other non-empty bank references are treated as strong.
+  references. Fetcher-generated `syn_…` fallback IDs are also weak because their
+  source content may change across the pending lifecycle. Other non-empty bank
+  references are treated as strong.
 - A strong reference remains the primary namespaced identity. Pending-to-booked
   changes to status, value date, servicer metadata, payee, or purpose do not
   change that identity.
@@ -150,9 +152,10 @@ earlier-account writes, deleted-record options, and zero writes on ambiguity.
 - Two genuinely distinct bank movements with every stable identity field equal
   are not safely distinguishable. The importer rejects/quarantines instead of
   guessing an occurrence number that could drift between fetch windows.
-- Weak-reference classification is an explicit conservative allowlist. A newly
-  observed bank placeholder must be added with a fixture/test before it receives
-  content-qualified handling; until then it is treated as a strong reference.
+- Weak-reference classification is an explicit conservative allowlist plus the
+  fetcher's `syn_…` fallback prefix. A newly observed bank placeholder must be
+  added with a fixture/test before it receives content-qualified handling; until
+  then it is treated as a strong reference.
 - `updateTransaction` is an atomic Actual API mutation, but a network loss after
   server commit and before acknowledgement is inherently ambiguous. Stable IDs
   and in-place updates make the next retry converge safely.

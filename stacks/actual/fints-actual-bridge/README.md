@@ -83,7 +83,8 @@ Each transaction in the output:
 
 Re-runs are idempotent. A strong bank reference is namespaced by source and
 account and remains the primary identity across pending-to-booked metadata
-changes. Known weak placeholders such as `STARTUMS` are not trusted as unique:
+changes. Known weak placeholders such as `STARTUMS`, plus fetcher-generated
+`syn_…` fallback IDs, are not trusted as unique:
 pending weak-reference rows are quarantined until booked, then qualified using
 booked-stable date, amount, currency, payee, and purpose fields. Distinct booked
 transactions remain distinct while a repeated fetch produces the same IDs.

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { canonicalImportedId, toActualTransaction } from '../src/importer/canonical.mjs';
+import { canonicalImportedId, isWeakSourceReference, toActualTransaction } from '../src/importer/canonical.mjs';
 
 test('canonical ID is stable and namespaced', () => {
   assert.equal(canonicalImportedId({ source: 'fints-umwelt', sourceAccount: 'card-1', sourceTransactionId: 'CARD-001' }), 'fints-umwelt:card-1:CARD-001');
@@ -114,4 +114,9 @@ test('weak booked identity ignores non-stable value and servicer metadata', () =
     },
   });
   assert.equal(first.imported_id, refetched.imported_id);
+});
+
+test('synthetic fetch fallback references are weak lifecycle identities', () => {
+  assert.equal(isWeakSourceReference('syn_0123456789abcdef01234567'), true);
+  assert.equal(isWeakSourceReference('REAL-BANK-REFERENCE'), false);
 });
