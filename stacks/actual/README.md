@@ -247,10 +247,10 @@ categorization, reconciliation, scheduling, or budgeting.
 
 The projection enforces SQLite `DELETE` journal mode, allowing Grafana's
 external `actual_db` volume to be mounted read-only. Dashboard JSON is an
-auxiliary bind mount rather than Compose content, so the scheduled
-**GitOps - Refresh monitoring dashboards** procedure idempotently deploys the
-monitoring stack every five minutes after Git reconciliation. This is the
-supported dashboard deployment path; do not assume Komodo detects JSON changes.
+auxiliary bind mount rather than Compose content. After **GitOps - Reconcile
+homelab** has completed, manually run **Monitoring - Refresh dashboards** once
+to deploy the new provisioning files. This explicit ordering is the supported
+dashboard deployment path; do not assume Komodo detects JSON changes.
 
 Duplicate candidates are regenerated transactionally from the current Actual
 snapshot with deterministic keys containing the exact candidate membership and
@@ -315,6 +315,8 @@ decision; a generic note is not a substitute.
 
 Before declaring the live workflow complete, record evidence that:
 
+- **GitOps - Reconcile homelab** completed, followed by one manual
+  **Monitoring - Refresh dashboards** run for this cutover;
 - the backup path/checksums and restore drill are valid;
 - each bank imports alone with no quarantine and a repeated identical window
   yields `added=0`;
@@ -337,6 +339,7 @@ Until this evidence exists, the repository is cutover-ready, not cut over.
 (cd ../monitoring && docker compose config --quiet)
 docker compose config --quiet
 jq empty ../monitoring/grafana/provisioning/dashboards/actual-*.json
+node --test ../monitoring/test/compose.test.mjs
 ```
 
 The `db-sync` test suite prepares every provisioned dashboard query against a

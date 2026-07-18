@@ -484,6 +484,10 @@ test('sync persists authoritative schedules and deterministic duplicate candidat
   const candidate = db.prepare("SELECT * FROM data_quality WHERE kind='duplicate_candidate'").get();
   assert.ok(candidate.check_id.startsWith('duplicate_candidate:'));
   assert.equal(candidate.resolved, 0);
+  assert.deepEqual(JSON.parse(candidate.detail), {
+    account_id: 'checking', date: '2026-07-18', amount_cents: -1200,
+    normalized_payee: 'shop', transaction_ids: ['a', 'b'], classification: 'fuzzy_review_only',
+  });
   assert.ok(JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get()).includes('unresolved_duplicate_candidate'));
   db.prepare("UPDATE data_quality SET resolved=1 WHERE kind='duplicate_candidate'").run();
   db.close();

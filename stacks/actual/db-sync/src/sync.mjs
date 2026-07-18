@@ -139,19 +139,22 @@ function duplicateCandidates(transactions, payeeNameById, checkedAt) {
   for (const transaction of transactions) {
     if (transaction.transfer_id || transaction.amount >= 0) continue;
     if (/^fints-bridge-(opening-balance|depot-revaluation)-/u.test(transaction.imported_id ?? '')) continue;
-    const key = [transaction.account, transaction.date, transaction.amount,
-      normalizedPayee(payeeNameById.get(transaction.payee))].join('\u0000');
+    const key = JSON.stringify({ account_id: transaction.account, date: transaction.date,
+      amount_cents: transaction.amount, normalized_payee: normalizedPayee(payeeNameById.get(transaction.payee)) });
     const group = groups.get(key) ?? [];
     group.push(transaction.id);
     groups.set(key, group);
   }
-  return [...groups.entries()].filter(([, ids]) => ids.length > 1).map(([key, ids]) => ({
-    check_id: `duplicate_candidate:${createHash('sha256').update(`${key}\u0000${ids.slice().sort().join('\u0000')}`).digest('hex').slice(0, 24)}`,
+  return [...groups.entries()].filter(([, ids]) => ids.length > 1).map(([key, ids]) => {
+    const identity = { ...JSON.parse(key), transaction_ids: ids.slice().sort(), classification: 'fuzzy_review_only' };
+    const detail = JSON.stringify(identity);
+    return {
+    check_id: `duplicate_candidate:${createHash('sha256').update(detail).digest('hex').slice(0, 24)}`,
     checked_at: checkedAt,
     kind: 'duplicate_candidate',
-    account_id: key.split('\u0000')[0],
-    detail: JSON.stringify({ transaction_ids: ids.slice().sort(), classification: 'fuzzy_review_only' }),
-  }));
+    account_id: identity.account_id,
+    detail,
+  }; });
 }
 
 // Replace the contents of every table in a single transaction. SQLite WAL mode

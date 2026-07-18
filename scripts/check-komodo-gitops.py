@@ -99,18 +99,18 @@ def main() -> int:
             errors.append("proxy refresh schedule must be enabled every 5 minutes")
 
     monitoring_refresh = next(
-        (p for p in procedures if p["name"] == "GitOps - Refresh monitoring dashboards"), None
+        (p for p in procedures if p["name"] == "Monitoring - Refresh dashboards"), None
     )
     expected_monitoring_execution = {"type": "DeployStack", "params": {"stack": "monitoring"}}
     if monitoring_refresh is None:
-        errors.append("missing GitOps - Refresh monitoring dashboards procedure")
+        errors.append("missing Monitoring - Refresh dashboards procedure")
     else:
         config = monitoring_refresh["config"]
         execution = config["stage"][0]["executions"][0]["execution"]
         if execution != expected_monitoring_execution:
             errors.append(f"unexpected monitoring refresh execution: {execution!r}")
-        if config.get("schedule") != "every 5 minutes" or config.get("schedule_enabled") is not True:
-            errors.append("monitoring refresh schedule must be enabled every 5 minutes")
+        if "schedule" in config or config.get("schedule_enabled"):
+            errors.append("monitoring dashboard refresh must be manual and unscheduled")
 
     finance_health = next((p for p in procedures if p["name"] == "Actual - Finance health"), None)
     health_command = finance_health["config"]["stage"][0]["executions"][0]["execution"]["params"].get("command", []) if finance_health else []

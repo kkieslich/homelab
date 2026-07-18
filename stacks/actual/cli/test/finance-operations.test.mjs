@@ -26,7 +26,7 @@ async function fixture() {
   db.prepare("INSERT INTO schedule_projection VALUES ('2026-07-18T10:00:00Z',1,'ok',999999999)").run();
   db.prepare("INSERT INTO budget_projection VALUES ('2026-07-18T10:00:00Z',1,strftime('%Y-%m','now'),999999999,'ok')").run();
   db.prepare("INSERT INTO current_budgets VALUES (strftime('%Y-%m','now'),'c','C','discretionary',0,0,0,0)").run();
-  db.prepare("INSERT INTO data_quality (check_id,checked_at,kind,account_id,detail,resolved,producer) VALUES ('duplicate_candidate:key','2026-07-18T10:00:00Z','duplicate_candidate','a','{\"transaction_ids\":[\"t1\",\"t2\"]}',0,'db-sync')").run();
+  db.prepare("INSERT INTO data_quality (check_id,checked_at,kind,account_id,detail,resolved,producer) VALUES ('duplicate_candidate:key','2026-07-18T10:00:00Z','duplicate_candidate','a','{\"account_id\":\"a\",\"date\":\"2026-07-18\",\"amount_cents\":-100,\"normalized_payee\":\"shop\",\"transaction_ids\":[\"t1\",\"t2\"],\"classification\":\"fuzzy_review_only\"}',0,'db-sync')").run();
   db.prepare(`INSERT INTO transactions (id,date,account_id,account_name,account_offbudget,amount_cents,category_is_income,cleared,reconciled,is_transfer,imported_id,year,month,ymd_unix)
     VALUES ('review','2026-06-20','a','Checking',0,-100,0,1,0,0,'x',2026,'2026-06',1)`).run();
   db.close();
@@ -42,8 +42,9 @@ test('finance health reports account-grain attempts, coverage, gates, and trust 
   assert.equal(report.accounts[0].latest_valid_success.requested_to, '2026-07-18');
   assert.equal(report.accounts[0].status, 'current');
   assert.ok(report.finance_trust.reasons.includes('unresolved_duplicate_candidate'));
-  assert.equal(report.gates.duplicate_candidates, 1);
-  assert.equal(report.gates.review_queue, 1);
+  assert.deepEqual(report.gates, report.finance_trust);
+  assert.equal(report.evidence.duplicate_candidates, 1);
+  assert.equal(report.evidence.review_queue, 1);
   assert.equal(fs.statSync(dbPath).mtimeMs, before);
 });
 
@@ -56,8 +57,17 @@ test('duplicate resolution is dry-run by default, transactional, idempotent, and
   assert.equal(resolveDuplicate({ ...input, apply: true }).applied, true);
   assert.equal(resolveDuplicate({ ...input, apply: true }).idempotent, true);
   db = new Database(dbPath); assert.equal(db.prepare('SELECT COUNT(*) FROM duplicate_resolution_audit').pluck().get(), 1);
-  db.prepare("UPDATE data_quality SET detail='{\"transaction_ids\":[\"changed\"]}',resolved=0 WHERE check_id=?").run(input.candidateKey); db.close();
-  assert.throws(() => resolveDuplicate({ ...input, apply: true }), /changed|stale/i);
+  db.close();
+  for (const conflict of [{ resolution: 'not_a_duplicate' }, { note: 'different' }, { reviewer: 'other' },
+    { resolvedAt: '2026-07-18T12:00:01Z' }]) {
+    assert.throws(() => resolveDuplicate({ ...input, ...conflict, apply: true }), /conflicts/i);
+  }
+  db = new Database(dbPath);
+  db.prepare("DELETE FROM data_quality WHERE check_id=?").run(input.candidateKey);
+  const audit = JSON.parse(db.prepare('SELECT candidate_detail FROM duplicate_resolution_audit').pluck().get());
+  db.close();
+  assert.equal(audit.account_id, 'a'); assert.equal(audit.amount_cents, -100); assert.deepEqual(audit.transaction_ids, ['t1', 't2']);
+  assert.throws(() => resolveDuplicate({ ...input, apply: true }), /current unresolved|stale/i);
   assert.throws(() => resolveDuplicate({ ...input, candidateKey: 'missing', apply: true }), /current unresolved/i);
 });
 
@@ -68,7 +78,33 @@ test('typed review annotations default dry-run and validate decision, note, revi
   assert.equal(annotateReviewQueue(input).applied, false);
   assert.equal(annotateReviewQueue({ ...input, apply: true }).applied, true);
   assert.equal(annotateReviewQueue({ ...input, apply: true }).idempotent, true);
+  for (const conflict of [{ note: 'different' }, { reviewer: 'other' }, { annotatedAt: '2026-07-18T12:00:01Z' }]) {
+    assert.throws(() => annotateReviewQueue({ ...input, ...conflict, apply: true }), /conflicts/i);
+  }
   for (const bad of [{ note: ' ' }, { reviewer: '' }, { annotatedAt: 'bad' }, { decision: 'skip' }]) {
     assert.throws(() => annotateReviewQueue({ ...input, ...bad, apply: true }), /invalid|required|UTC/i);
   }
+});
+
+test('finance health gate summary is exactly the canonical trust view', async () => {
+  const dbPath = await fixture();
+  const db = new Database(dbPath);
+  db.prepare("DELETE FROM data_quality WHERE kind='duplicate_candidate'").run();
+  db.prepare("INSERT INTO accounts VALUES ('closed','Closed',0,1,0)").run();
+  db.prepare("INSERT INTO account_projection VALUES ('closed','2026-07-18','2026-07-18','2026-07-18T10:00:00Z')").run();
+  db.prepare("INSERT INTO data_quality (check_id,checked_at,kind,account_id,value_cents,resolved) VALUES ('closed-gap',datetime('now'),'reconciliation_gap','closed',100,0),('zero-gap',datetime('now'),'reconciliation_gap','a',0,0)").run();
+  db.prepare("INSERT INTO pipeline_runs (run_id,source,finished_at,quarantined,outcome,resolved) VALUES ('other','unexpected',datetime('now'),2,'failed',0)").run();
+  db.close();
+  const report = financeHealth({ dbPath });
+  assert.deepEqual(report.gates, report.finance_trust);
+  assert.equal(report.finance_trust.trusted, true);
+  assert.equal(report.evidence.reconciliation.length, 0);
+  assert.equal(report.evidence.quarantine.length, 0);
+  const write = new Database(dbPath);
+  write.prepare("UPDATE pipeline_runs SET quarantined=1,resolved=0 WHERE run_id='r'").run();
+  write.prepare("UPDATE pipeline_run_accounts SET quarantined=1 WHERE run_id='r'").run();
+  write.close();
+  const blocked = financeHealth({ dbPath });
+  assert.ok(blocked.gates.reasons.includes('unresolved_quarantine'));
+  assert.equal(blocked.evidence.quarantine.length, 1);
 });

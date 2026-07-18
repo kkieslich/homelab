@@ -59,7 +59,9 @@ The supported resolutions are `intentional_repeat`,
 `confirmed_duplicate_merged`, and `not_a_duplicate`. After verifying the dry
 run, repeat with `--apply`. The write is transactional and audited. It refuses
 a stale key or changed evidence; refresh and review again instead of editing
-SQLite directly. An unchanged candidate remains resolved across db-sync.
+SQLite directly. An unchanged candidate remains resolved across db-sync. A
+repeat is idempotent only when resolution, normalized note, reviewer, and UTC
+timestamp exactly match the immutable audit; any conflict fails closed.
 
 Open the saved filter for on-budget, non-transfer transactions with a missing
 category/payee, duplicate candidate, or unusual amount.

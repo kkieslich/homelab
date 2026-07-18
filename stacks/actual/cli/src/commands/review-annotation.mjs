@@ -12,7 +12,11 @@ export function annotateReviewQueue({ dbPath, transactionId, month, decision, no
     const item = db.prepare('SELECT id FROM review_queue WHERE id=? AND month=?').get(transactionId, month);
     if (!item) throw new Error('Transaction is not in the current month-scoped review queue');
     const existing = db.prepare('SELECT * FROM review_queue_annotations WHERE transaction_id=? AND month=?').get(transactionId, month);
-    if (existing) return { transaction_id: transactionId, month, applied: apply, idempotent: true };
+    if (existing) {
+      if (existing.decision !== decision || existing.note !== note.trim() || existing.reviewer !== reviewer.trim()
+        || existing.annotated_at !== annotatedAt) throw new Error('Requested annotation conflicts with immutable stored evidence');
+      return { transaction_id: transactionId, month, applied: apply, idempotent: true };
+    }
     if (!apply) return { transaction_id: transactionId, month, decision, reviewer: reviewer.trim(), applied: false };
     db.prepare(`INSERT INTO review_queue_annotations
       (transaction_id,month,decision,annotated_at,note,reviewer) VALUES (?,?,?,?,?,?)`)

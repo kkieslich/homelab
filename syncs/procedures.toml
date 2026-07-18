@@ -59,11 +59,9 @@ executions = [
 # Komodo's Compose-content change detector. An explicit idempotent deployment
 # after Git sync reliably reloads provisioned dashboards.
 [[procedure]]
-name = "GitOps - Refresh monitoring dashboards"
-description = "Deploys the monitoring stack every five minutes so provisioned dashboard and datasource changes from Git become active."
+name = "Monitoring - Refresh dashboards"
+description = "Manually deploys monitoring after GitOps reconciliation completes so provisioned dashboard and datasource changes become active."
 tags = ["system", "gitops", "monitoring"]
-config.schedule = "every 5 minutes"
-config.schedule_enabled = true
 
 [[procedure.config.stage]]
 name = "Deploy monitoring idempotently"

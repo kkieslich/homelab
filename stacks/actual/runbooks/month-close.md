@@ -31,7 +31,9 @@ sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs review-annotation \
 
 The timestamp must be non-empty UTC ISO format. On upgraded replicas SQLite
 cannot retrofit the fresh-install timestamp `CHECK` constraint, so the command
-enforces the same validation before every write.
+enforces the same validation before every write. Repeating an annotation is
+idempotent only with the exact same decision, normalized note, reviewer, and
+UTC timestamp; conflicting evidence is never overwritten.
 
 Stop for stale/missing imports, quarantine, reconciliation gaps, invalid
 category roles, or material unexplained transactions. `finance_trust=false`

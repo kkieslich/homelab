@@ -1,6 +1,12 @@
 import Database from 'better-sqlite3';
 import { parseArgs } from '../lib/args.mjs';
 
+function validDay(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value ?? '')) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 export function financeHealth({ dbPath, now = new Date() }) {
   if (!dbPath) throw new Error('A snapshot SQLite path is required');
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
@@ -19,8 +25,8 @@ export function financeHealth({ dbPath, now = new Date() }) {
       const latestSuccess = success.get(row.account_id, row.source, nowSeconds) ?? null;
       const finishedSeconds = latestSuccess ? Math.floor(new Date(latestSuccess.finished_at).getTime() / 1000) : null;
       const future = latestAttempt && new Date(latestAttempt.finished_at).getTime() > now.getTime() + 300000;
-      const coverageValid = latestSuccess && /^\d{4}-\d{2}-\d{2}$/u.test(latestSuccess.requested_from ?? '')
-        && /^\d{4}-\d{2}-\d{2}$/u.test(latestSuccess.requested_to ?? '')
+      const coverageValid = latestSuccess && validDay(latestSuccess.requested_from)
+        && validDay(latestSuccess.requested_to)
         && latestSuccess.requested_from <= latestSuccess.requested_to
         && latestSuccess.requested_to <= now.toISOString().slice(0, 10);
       let status = 'current';
@@ -38,15 +44,21 @@ export function financeHealth({ dbPath, now = new Date() }) {
         finish_age_seconds: finishedSeconds === null ? null : nowSeconds - finishedSeconds, status };
     });
     const trust = db.prepare('SELECT trusted,reasons FROM finance_trust').get() ?? { trusted: 0, reasons: '[]' };
+    const financeTrust = { trusted: Boolean(trust.trusted), reasons: JSON.parse(trust.reasons) };
     return {
       evaluated_at: now.toISOString(),
-      finance_trust: { trusted: Boolean(trust.trusted), reasons: JSON.parse(trust.reasons) },
+      finance_trust: financeTrust,
       accounts,
-      gates: {
+      gates: financeTrust,
+      evidence: {
         review_queue: db.prepare('SELECT COUNT(*) FROM review_queue').pluck().get(),
         duplicate_candidates: db.prepare("SELECT COUNT(*) FROM data_quality WHERE kind='duplicate_candidate' AND resolved=0").pluck().get(),
-        reconciliation: db.prepare("SELECT COUNT(*) FROM data_quality WHERE kind LIKE 'reconciliation_%' AND resolved=0").pluck().get(),
-        quarantine: db.prepare('SELECT COUNT(*) FROM pipeline_runs WHERE quarantined>0 AND resolved=0').pluck().get(),
+        reconciliation: db.prepare(`SELECT q.* FROM data_quality q JOIN accounts a ON a.id=q.account_id AND a.closed=0
+          WHERE q.resolved=0 AND ((q.kind='reconciliation_gap' AND COALESCE(q.value_cents,0)<>0)
+            OR q.kind IN ('reconciliation_missing','reconciliation_stale','reconciliation_future')) ORDER BY q.check_id`).all(),
+        quarantine: db.prepare(`SELECT p.run_id,a.account_id,a.source,a.quarantined FROM pipeline_run_accounts a
+          JOIN pipeline_runs p ON p.run_id=a.run_id JOIN expected_sources e ON e.account_id=a.account_id AND e.source=a.source
+          WHERE a.quarantined>0 AND p.resolved=0 ORDER BY p.run_id,a.account_id`).all(),
         budget_projection: db.prepare('SELECT * FROM budget_projection ORDER BY fetched_at DESC LIMIT 1').get() ?? null,
         schedule_projection: db.prepare('SELECT * FROM schedule_projection ORDER BY fetched_at DESC LIMIT 1').get() ?? null,
       },

@@ -14,6 +14,8 @@ export function resolveDuplicate({ dbPath, candidateKey, resolution, note, revie
     const audit = db.prepare('SELECT * FROM duplicate_resolution_audit WHERE candidate_key=?').get(candidateKey);
     if (audit) {
       if (audit.candidate_detail !== candidate.detail) throw new Error('Candidate evidence changed; resolution key is stale');
+      if (audit.resolution !== resolution || audit.note !== note.trim() || audit.reviewer !== reviewer.trim()
+        || audit.resolved_at !== resolvedAt) throw new Error('Requested resolution conflicts with immutable audit evidence');
       return { candidate_key: candidateKey, applied: apply, idempotent: true };
     }
     if (candidate.resolved) throw new Error('Candidate is not a current unresolved duplicate candidate');
