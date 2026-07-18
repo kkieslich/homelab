@@ -4,6 +4,9 @@
   "description": "Local CLI for the self-hosted Actual Budget instance: fetch a budget snapshot, analyze spending, detect subscriptions, and apply rule-based categorization.",
   "type": "module",
   "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "bin": {
     "actual": "./bin/actual.mjs"
   },

@@ -9,6 +9,7 @@ const COMMANDS = {
   fetch:            'Download the latest budget snapshot to the local cache.',
   analyze:          'Spending breakdown by category over a rolling window.',
   subs:             'Detect recurring subscriptions from transaction cadence.',
+  'audit-imports':  'Audit import IDs, duplicate candidates, payees, and categories (read-only).',
   categorize:       'Apply rule-based categorization (config/categorization.json).',
   'fixup-transfers': 'Link orphan transfer txs (payee=transfer-payee but no transfer_id) by creating their missing mirrors.',
 };
