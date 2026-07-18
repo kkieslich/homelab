@@ -39,10 +39,62 @@ function substituteGrafanaVariables(sql) {
 }
 
 function referencedRelations(sql) {
-  return [...sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)/gi)]
-    .map(match => match[1].toLowerCase())
-    .filter(name => !['latest', 'latest_runs', 'months', 'monthly', 'cur', 'prev',
-      'roles', 'payee_baseline', 'latest_capture', 'portfolio', 'run_days'].includes(name));
+  const tokens = sql.match(/"(?:""|[^"])*"|`(?:``|[^`])*`|\[[^\]]+\]|'(?:''|[^'])*'|[a-z_][a-z0-9_$]*|[(),.;]/gi) ?? [];
+  const word = token => token && !/^['(),.;]$/.test(token);
+  const normalize = token => token.replace(/^(?:"|`|\[)|(?:"|`|\])$/g, '').replaceAll('""', '"').toLowerCase();
+  const ctes = new Set();
+  for (const match of sql.matchAll(/(?:^|,)\s*("(?:""|[^"])*"|`(?:``|[^`])*`|\[[^\]]+\]|[a-z_][a-z0-9_$]*)\s*(?:\([^)]*\))?\s+AS\s*\(/gi)) {
+    ctes.add(normalize(match[1]));
+  }
+  for (let i = 0; i < tokens.length; i++) {
+    if (normalize(tokens[i]) !== 'with') continue;
+    i++;
+    if (normalize(tokens[i]) === 'recursive') i++;
+    while (i < tokens.length && word(tokens[i])) {
+      ctes.add(normalize(tokens[i]));
+      while (i < tokens.length && normalize(tokens[i]) !== 'as') i++;
+      if (tokens[++i] !== '(') break;
+      let depth = 1;
+      while (++i < tokens.length && depth) {
+        if (tokens[i] === '(') depth++;
+        else if (tokens[i] === ')') depth--;
+      }
+      if (tokens[i + 1] !== ',') break;
+      i += 2;
+    }
+    break;
+  }
+  const relations = [];
+  const fromDepths = new Set();
+  let depth = 0;
+  let expectSource = false;
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const keyword = normalize(token);
+    if (token === '(') { if (expectSource) expectSource = false; depth++; continue; }
+    if (token === ')') { fromDepths.delete(depth); depth--; continue; }
+    if (keyword === 'from') { fromDepths.add(depth); expectSource = true; continue; }
+    if (keyword === 'join') { expectSource = true; continue; }
+    if (['where', 'group', 'having', 'order', 'limit', 'union', 'except', 'intersect', 'returning'].includes(keyword)) {
+      fromDepths.delete(depth); expectSource = false; continue;
+    }
+    if (token === ',' && fromDepths.has(depth)) { expectSource = true; continue; }
+    if (!expectSource || !word(token) || token.startsWith("'")) continue;
+    let relation = normalize(token);
+    if (tokens[i + 1] === '.' && word(tokens[i + 2])) {
+      relation = normalize(tokens[i + 2]);
+      i += 2;
+    }
+    if (!ctes.has(relation)) relations.push(relation);
+    expectSource = false;
+  }
+  return relations;
+}
+
+function panelByTitle(dashboard, title) {
+  const panel = dashboard.panels.find(item => item.title === title);
+  assert.ok(panel, `missing panel ${title}`);
+  return panel;
 }
 
 test('ships exactly the three Actual-first dashboards with stable UIDs', () => {
@@ -122,4 +174,85 @@ test('stat titles fit compact Grafana cards', () => {
       assert.ok(panel.title.length <= limit, `${name}: stat title is too long: ${panel.title}`);
     }
   }
+});
+
+test('every financial target exposes a query-level freshness field', () => {
+  const financialPanels = {
+    'actual-home.json': ['Net worth — close', 'Liquid — close', 'Safe — month', 'Safe — day',
+      'Savings rate', 'Current envelope funding and consumption by role'],
+    'actual-monthly.json': ['Income — close', 'Spend — close', 'Savings rate', 'Contributions',
+      'Monthly income, consumption, and contributions', 'Consumption mix by canonical role',
+      'Month-over-month category drivers', 'Month-over-month merchant drivers',
+      'Consumption and three-month rolling average', 'Annualized irregular-cost funding',
+      'Recent unusual consumption'],
+    'actual-investments-pipeline.json': ['Contributions', 'Portfolio value', 'Holdings valued',
+      'Reported portfolio value over time', 'Current portfolio allocation'],
+  };
+  const db = new Database(':memory:');
+  db.exec(SCHEMA);
+  try {
+    for (const [name, titles] of Object.entries(financialPanels)) {
+      const dashboard = JSON.parse(fs.readFileSync(path.join(DASHBOARDS, name), 'utf8'));
+      for (const title of titles) {
+        for (const sql of queries(panelByTitle(dashboard, title))) {
+          const columns = db.prepare(substituteGrafanaVariables(sql)).columns().map(column => column.name.toLowerCase());
+          assert.ok(columns.some(column => ['data_as_of', 'captured_at', 'evaluated_at', 'latest_month'].includes(column)),
+            `${name} / ${title} lacks a query-level freshness field: ${columns.join(', ')}`);
+        }
+      }
+    }
+  } finally {
+    db.close();
+  }
+});
+
+test('relation extraction rejects quoted, qualified, and comma-joined non-canonical sources', () => {
+  for (const sql of [
+    'SELECT * FROM "transactions"',
+    'SELECT * FROM main.transactions AS t',
+    'SELECT * FROM accounts a, transactions t WHERE a.id=t.account_id',
+  ]) {
+    assert.ok(referencedRelations(sql).includes('transactions'), sql);
+    assert.throws(() => {
+      for (const relation of referencedRelations(sql)) assert.ok(CANONICAL.has(relation), relation);
+    }, /transactions/);
+  }
+  assert.deepEqual(referencedRelations('WITH monthly AS (SELECT month FROM consumption) SELECT * FROM monthly JOIN accounts a ON 1=1').sort(),
+    ['accounts', 'consumption']);
+  assert.deepEqual(referencedRelations('SELECT * FROM "main"."ordinary_income" i'), ['ordinary_income']);
+});
+
+test('month-over-month drivers compare the two latest observed closes including appeared and disappeared items', () => {
+  const db = new Database(':memory:');
+  db.exec(SCHEMA);
+  db.prepare(`INSERT INTO accounts VALUES ('checking','Checking',0,0,0)`).run();
+  db.prepare(`INSERT INTO budget_snapshots VALUES
+    ('2026-04','2026-04-30T23:00:00Z','c','Category','essential',0,0,0,0),
+    ('2026-06','2026-06-30T23:00:00Z','c','Category','essential',0,0,0,0)`).run();
+  const insert = db.prepare(`INSERT INTO transactions
+    (id,date,account_id,account_name,account_offbudget,amount_cents,payee_name,category_id,
+     category_name,category_group_name,category_role,category_is_income,cleared,reconciled,
+     is_transfer,imported_id,year,month,ymd_unix)
+    VALUES (@id,@date,'checking','Checking',0,@amount,@payee,@category,@category,
+      'Flexible essentials','essential',0,1,1,0,@id,@year,@month,@unix)`);
+  for (const row of [
+    ['april-stay','2026-04-03',-10000,'Shop Stay','Stay'],
+    ['april-gone','2026-04-04',-5000,'Shop Gone','Gone'],
+    ['june-stay','2026-06-03',-13000,'Shop Stay','Stay'],
+    ['june-new','2026-06-04',-2000,'Shop New','New'],
+  ]) {
+    const [id, date, amount, payee, category] = row;
+    insert.run({ id, date, amount, payee, category, year: Number(date.slice(0, 4)), month: date.slice(0, 7), unix: Date.parse(`${date}T00:00:00Z`) / 1000 });
+  }
+  const dashboard = JSON.parse(fs.readFileSync(path.join(DASHBOARDS, 'actual-monthly.json'), 'utf8'));
+  for (const [title, label] of [['Month-over-month category drivers', 'Category'], ['Month-over-month merchant drivers', 'Merchant']]) {
+    const rows = db.prepare(queries(panelByTitle(dashboard, title))[0]).all();
+    const gone = rows.find(row => row[label] === (label === 'Category' ? 'Gone' : 'Shop Gone'));
+    const appeared = rows.find(row => row[label] === (label === 'Category' ? 'New' : 'Shop New'));
+    assert.equal(gone['Change EUR'], -50);
+    assert.equal(appeared['Change EUR'], 20);
+    assert.equal(gone.latest_month, '2026-06');
+    assert.equal(gone.prior_month, '2026-04');
+  }
+  db.close();
 });

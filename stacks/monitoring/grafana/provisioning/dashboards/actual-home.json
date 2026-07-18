@@ -39,26 +39,26 @@
       "options": { "colorMode": "value", "graphMode": "none", "textMode": "value_and_name" }
     },
     {
-      "id": 5, "type": "stat", "title": "Safe — month", "description": "EUR, current month. Positive discretionary availability minus essential underfunding, only when finance trust passes. Unpaid schedules are not projected and are excluded.",
+      "id": 5, "type": "stat", "title": "Safe — month", "description": "EUR, current month, evaluated_at returned by the query. Positive discretionary availability minus essential underfunding, only when finance trust passes. Unpaid schedules are excluded.",
       "gridPos": { "x": 12, "y": 4, "w": 4, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN (SUM(CASE WHEN b.category_role='discretionary' AND b.balance_cents>0 THEN b.balance_cents ELSE 0 END)-SUM(CASE WHEN b.category_role='essential' AND b.balance_cents<0 THEN -b.balance_cents ELSE 0 END))/100.0 END AS value FROM current_budgets b CROSS JOIN finance_trust f WHERE b.month=strftime('%Y-%m','now')" }],
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN (SUM(CASE WHEN b.category_role='discretionary' AND b.balance_cents>0 THEN b.balance_cents ELSE 0 END)-SUM(CASE WHEN b.category_role='essential' AND b.balance_cents<0 THEN -b.balance_cents ELSE 0 END))/100.0 END AS value,datetime('now') AS evaluated_at FROM current_budgets b CROSS JOIN finance_trust f WHERE b.month=strftime('%Y-%m','now')" }],
       "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
       "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
-      "id": 6, "type": "stat", "title": "Safe — day", "description": "EUR/day through month end, including today. Non-negative current-month safe-to-spend divided by remaining calendar days; excludes unpaid schedules and requires finance trust.",
+      "id": 6, "type": "stat", "title": "Safe — day", "description": "EUR/day through month end, including today; evaluated_at is returned by the query. Excludes unpaid schedules and requires finance trust.",
       "gridPos": { "x": 16, "y": 4, "w": 4, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN MAX(0,SUM(CASE WHEN b.category_role='discretionary' AND b.balance_cents>0 THEN b.balance_cents ELSE 0 END)-SUM(CASE WHEN b.category_role='essential' AND b.balance_cents<0 THEN -b.balance_cents ELSE 0 END))/100.0/(julianday(date('now','start of month','+1 month'))-julianday(date('now'))) END AS value FROM current_budgets b CROSS JOIN finance_trust f WHERE b.month=strftime('%Y-%m','now')" }],
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN MAX(0,SUM(CASE WHEN b.category_role='discretionary' AND b.balance_cents>0 THEN b.balance_cents ELSE 0 END)-SUM(CASE WHEN b.category_role='essential' AND b.balance_cents<0 THEN -b.balance_cents ELSE 0 END))/100.0/(julianday(date('now','start of month','+1 month'))-julianday(date('now'))) END AS value,datetime('now') AS evaluated_at FROM current_budgets b CROSS JOIN finance_trust f WHERE b.month=strftime('%Y-%m','now')" }],
       "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
       "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
-      "id": 7, "type": "stat", "title": "Savings rate", "description": "Percent. Canonical investment contributions divided by ordinary income for the current month; null when income is zero or finance trust fails.",
+      "id": 7, "type": "stat", "title": "Savings rate", "description": "Percent, evaluated_at returned by the query. Current-month contributions divided by ordinary income; null when income is zero or finance trust fails.",
       "gridPos": { "x": 20, "y": 4, "w": 4, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 AND i.value_cents>0 THEN 100.0*s.value_cents/i.value_cents END AS value FROM (SELECT COALESCE(SUM(amount_cents),0) value_cents FROM ordinary_income WHERE month=strftime('%Y-%m','now')) i CROSS JOIN (SELECT COALESCE(SUM(amount_cents),0) value_cents FROM savings_contributions WHERE month=strftime('%Y-%m','now')) s CROSS JOIN finance_trust f" }],
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 AND i.value_cents>0 THEN 100.0*s.value_cents/i.value_cents END AS value,datetime('now') AS evaluated_at FROM (SELECT COALESCE(SUM(amount_cents),0) value_cents FROM ordinary_income WHERE month=strftime('%Y-%m','now')) i CROSS JOIN (SELECT COALESCE(SUM(amount_cents),0) value_cents FROM savings_contributions WHERE month=strftime('%Y-%m','now')) s CROSS JOIN finance_trust f" }],
       "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] },
       "options": { "colorMode": "value", "graphMode": "none" }
     },
@@ -71,11 +71,11 @@
       "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
-      "id": 9, "type": "barchart", "title": "Current envelope funding and consumption by role", "description": "EUR, current budget month. Budgeted amount and absolute spend grouped by canonical role; exact values are available in tooltips.",
+      "id": 9, "type": "barchart", "title": "Current envelope funding and consumption by role", "description": "EUR, current budget month returned as data_as_of. Budgeted amount and absolute spend grouped by canonical role; exact values are available in tooltips.",
       "gridPos": { "x": 6, "y": 8, "w": 18, "h": 8 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT category_role AS role, SUM(budgeted_cents)/100.0 AS \"Funded EUR\", ABS(SUM(spent_cents))/100.0 AS \"Consumed EUR\" FROM current_budgets WHERE month=strftime('%Y-%m','now') GROUP BY category_role ORDER BY category_role" }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 }, "overrides": [{ "matcher": { "id": "byName", "options": "Funded EUR" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3274D9" } }] }, { "matcher": { "id": "byName", "options": "Consumed EUR" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E5AC0E" } }] }] },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT category_role AS role,SUM(budgeted_cents)/100.0 AS \"Funded EUR\",ABS(SUM(spent_cents))/100.0 AS \"Consumed EUR\",MAX(month) AS data_as_of FROM current_budgets WHERE month=strftime('%Y-%m','now') GROUP BY category_role ORDER BY category_role" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 }, "overrides": [{ "matcher": { "id": "byName", "options": "Funded EUR" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3274D9" } }] }, { "matcher": { "id": "byName", "options": "Consumed EUR" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E5AC0E" } }] }, { "matcher": { "id": "byName", "options": "data_as_of" }, "properties": [{ "id": "custom.hideFrom", "value": { "legend": true, "tooltip": false, "viz": true } }] }] },
       "options": { "orientation": "horizontal", "showValue": "always", "stacking": "none", "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } }
     },
     {

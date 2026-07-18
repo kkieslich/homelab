@@ -3,21 +3,21 @@
   "links": [{ "title": "Home", "type": "link", "url": "/d/actual-home" }, { "title": "Monthly analysis", "type": "link", "url": "/d/actual-monthly" }],
   "panels": [
     {
-      "id": 1, "type": "stat", "title": "Contributions", "description": "EUR. Canonical transfers from on-budget accounts to off-budget savings/investment accounts in the current month; requires finance trust.",
+      "id": 1, "type": "stat", "title": "Contributions", "description": "EUR, current month, with evaluated_at returned. Canonical on-budget to off-budget savings/investment transfers; requires finance trust.",
       "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN SUM(s.amount_cents)/100.0 END AS value FROM savings_contributions s CROSS JOIN finance_trust f WHERE s.month=strftime('%Y-%m','now')" }],
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN SUM(s.amount_cents)/100.0 END AS value,datetime('now') AS evaluated_at FROM savings_contributions s CROSS JOIN finance_trust f WHERE s.month=strftime('%Y-%m','now')" }],
       "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
-      "id": 2, "type": "stat", "title": "Portfolio value", "description": "EUR. Sum of the current holdings snapshot, not investment performance or tax-lot value; valuation freshness is shown separately.",
+      "id": 2, "type": "stat", "title": "Portfolio value", "description": "EUR with latest valuation date returned as data_as_of. Current holdings snapshot only; not performance or tax-lot value.",
       "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN SUM(h.total_value_cents)/100.0 END AS value FROM holdings h CROSS JOIN finance_trust f" }],
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN SUM(h.total_value_cents)/100.0 END AS value,MAX(h.valuation_date) AS data_as_of FROM holdings h CROSS JOIN finance_trust f" }],
       "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
       "id": 3, "type": "stat", "title": "Holdings valued", "description": "Latest valuation date reported by any current holding. Compare it with source freshness before using portfolio totals.",
       "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT COALESCE(MAX(valuation_date),'No holdings snapshot') AS value FROM holdings" }],
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT COALESCE(MAX(valuation_date),'No holdings snapshot') AS value,MAX(valuation_date) AS data_as_of FROM holdings" }],
       "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
@@ -27,16 +27,16 @@
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] }, "options": { "colorMode": "value", "graphMode": "none" }
     },
     {
-      "id": 5, "type": "timeseries", "title": "Reported portfolio value over time", "description": "EUR at each holdings snapshot. This is reported market value only; it is not a return series and does not adjust for contributions.",
+      "id": 5, "type": "timeseries", "title": "Reported portfolio value over time", "description": "EUR at each holdings snapshot with data_as_of returned. Reported market value only; not a contribution-adjusted return series.",
       "gridPos": { "x": 0, "y": 4, "w": 14, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "time series", "rawQueryText": "SELECT snapshot_unix AS time,SUM(total_value_cents)/100.0 AS \"Portfolio EUR\" FROM holdings_history GROUP BY snapshot_unix ORDER BY snapshot_unix", "timeColumns": ["time"] }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" }, "custom": { "lineWidth": 2, "showPoints": "auto" } }, "overrides": [] }, "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } }
+      "targets": [{ "refId": "A", "queryType": "time series", "rawQueryText": "SELECT snapshot_unix AS time,SUM(total_value_cents)/100.0 AS \"Portfolio EUR\",MAX(MAX(snapshot_iso)) OVER () AS data_as_of FROM holdings_history GROUP BY snapshot_unix ORDER BY snapshot_unix", "timeColumns": ["time"] }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" }, "custom": { "lineWidth": 2, "showPoints": "auto" } }, "overrides": [{ "matcher": { "id": "byName", "options": "data_as_of" }, "properties": [{ "id": "custom.hideFrom", "value": { "legend": true, "tooltip": false, "viz": true } }] }] }, "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } }
     },
     {
-      "id": 6, "type": "barchart", "title": "Current portfolio allocation", "description": "EUR by current holding, sorted largest first. Exact values and names distinguish holdings; this is allocation, not performance.",
+      "id": 6, "type": "barchart", "title": "Current portfolio allocation", "description": "EUR by current holding, sorted largest first, with valuation data_as_of returned. Allocation only, not performance.",
       "gridPos": { "x": 14, "y": 4, "w": 10, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT name AS Holding,total_value_cents/100.0 AS \"Value EUR\" FROM holdings ORDER BY total_value_cents DESC" }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] }, "options": { "orientation": "horizontal", "showValue": "always", "legend": { "showLegend": false } }
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT name AS Holding,total_value_cents/100.0 AS \"Value EUR\",MAX(valuation_date) OVER () AS data_as_of FROM holdings ORDER BY total_value_cents DESC" }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [{ "matcher": { "id": "byName", "options": "data_as_of" }, "properties": [{ "id": "custom.hideFrom", "value": { "legend": true, "tooltip": false, "viz": true } }] }] }, "options": { "orientation": "horizontal", "showValue": "always", "legend": { "showLegend": false } }
     },
     {
       "id": 7, "type": "table", "title": "Expected source coverage and freshness", "description": "Latest run per expected source, evaluated now. Status text, run outcome, age, and expected cadence make missing or stale coverage explicit.",
