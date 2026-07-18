@@ -81,10 +81,22 @@ def main() -> int:
         execution = config["stage"][0]["executions"][0]["execution"]
         if execution != expected_execution:
             errors.append(f"unexpected reconciliation execution: {execution!r}")
-        expected_proxy_execution = {"type": "DeployStack", "params": {"stack": "proxy"}}
-        proxy_execution = config["stage"][1]["executions"][0]["execution"] if len(config["stage"]) > 1 else None
+        if len(config["stage"]) != 1:
+            errors.append("reconciliation must not modify its own running procedure")
+
+    proxy_refresh = next(
+        (p for p in procedures if p["name"] == "GitOps - Refresh proxy"), None
+    )
+    expected_proxy_execution = {"type": "DeployStack", "params": {"stack": "proxy"}}
+    if proxy_refresh is None:
+        errors.append("missing GitOps - Refresh proxy procedure")
+    else:
+        config = proxy_refresh["config"]
+        proxy_execution = config["stage"][0]["executions"][0]["execution"]
         if proxy_execution != expected_proxy_execution:
-            errors.append(f"unexpected proxy reconciliation execution: {proxy_execution!r}")
+            errors.append(f"unexpected proxy refresh execution: {proxy_execution!r}")
+        if config.get("schedule") != "every 5 minutes" or config.get("schedule_enabled") is not True:
+            errors.append("proxy refresh schedule must be enabled every 5 minutes")
 
     caddyfile = (ROOT / "stacks" / "proxy" / "caddy" / "Caddyfile").read_text()
     proxy_compose = (ROOT / "stacks" / "proxy" / "docker-compose.yml").read_text()

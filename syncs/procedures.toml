@@ -19,10 +19,17 @@ executions = [
 ]
 
 # Komodo's stack change detector compares Compose contents, not auxiliary
-# bind-mounted files. An idempotent proxy deploy updates its Git clone every
-# cycle; Caddy's --watch then reloads a changed directory-mounted Caddyfile.
+# bind-mounted files. Keep proxy refresh separate from RunSync so the sync never
+# modifies its own currently running procedure.
+[[procedure]]
+name = "GitOps - Refresh proxy"
+description = "Refreshes the Proxy Git clone so Caddy --watch sees auxiliary Caddyfile changes."
+tags = ["system", "gitops"]
+config.schedule = "every 5 minutes"
+config.schedule_enabled = true
+
 [[procedure.config.stage]]
-name = "Refresh proxy auxiliary files"
+name = "Deploy proxy idempotently"
 enabled = true
 executions = [
   { execution.type = "DeployStack", execution.params.stack = "proxy", enabled = true },
