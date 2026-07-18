@@ -31,11 +31,22 @@ data directory. Do not commit either export.
 
 ## Create the server backup
 
-Importer jobs are one-shot profile services. Verify that none is running; do
-not stop `actual_server` or `actual_db_sync` for this procedure.
+Importer jobs are one-shot profile services. Stop only their explicitly named
+containers if they exist, then abort unless both are inactive. Do not stop
+`actual_server` or `actual_db_sync` for this procedure.
 
 ```sh
-docker ps --format '{{.Names}}' | grep '^fints_sync_' || true
+for importer in fints_sync_umwelt fints_sync_baader; do
+  if docker container inspect "$importer" >/dev/null 2>&1; then
+    docker stop --time 30 "$importer"
+  fi
+done
+for importer in fints_sync_umwelt fints_sync_baader; do
+  if docker ps --quiet --filter "name=^/${importer}$" | grep -q .; then
+    echo "ABORT: importer is still running: $importer" >&2
+    exit 1
+  fi
+done
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup_dir=/persist/backups/actual/$stamp
@@ -78,25 +89,130 @@ curl --retry 30 --retry-delay 1 --retry-connrefused -fsS \
   http://127.0.0.1:15006/ >/dev/null
 ```
 
-Point a temporary Actual API client at
-`http://actual_restore_drill:5006`, download the configured sync ID into a new
-temporary client directory, and verify account and transaction counts. The
-2026-07-18 pre-cleanup baseline is seven accounts and 1,496 transactions.
-Remove only the explicitly named drill container and directory afterward:
+Use the API client already installed in `actual_db_sync` to verify the restored
+server. The command inherits the production credentials without printing them,
+but overrides the server and uses a fresh client directory. It must report
+seven accounts and 1,496 transactions for the 2026-07-18 pre-cleanup backup.
+
+```sh
+docker exec actual_db_sync mkdir -p /tmp/actual-restore-verify
+docker exec \
+  -e ACTUAL_SERVER_URL=http://actual_restore_drill:5006 \
+  -e ACTUAL_DATA_DIR=/tmp/actual-restore-verify \
+  actual_db_sync node --input-type=module -e '
+import * as api from "@actual-app/api";
+await api.init({
+  dataDir: process.env.ACTUAL_DATA_DIR,
+  serverURL: process.env.ACTUAL_SERVER_URL,
+  password: process.env.ACTUAL_PASSWORD,
+});
+await api.downloadBudget(process.env.ACTUAL_BUDGET_ID);
+const accounts = await api.getAccounts();
+let transactions = 0;
+for (const account of accounts) {
+  transactions += (await api.getTransactions(
+    account.id, "1900-01-01", "2100-01-01"
+  )).length;
+}
+console.log(JSON.stringify({ accounts: accounts.length, transactions }));
+await api.shutdown();
+'
+```
+
+Remove only the explicitly named drill container and the validated drill
+directory afterward:
 
 ```sh
 docker rm -f actual_restore_drill
-sudo rm -rf "$drill_dir"
+case "$drill_dir" in
+  /persist/backups/actual/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z/restore-drill)
+    sudo rm -rf -- "$drill_dir"
+    ;;
+  *) echo "ABORT: invalid drill path: $drill_dir" >&2; exit 1 ;;
+esac
 ```
 
 ## Production restore
 
-Only restore during an announced outage. First stop the three Actual services,
-move each current `_data` directory to a timestamped rollback location, verify
-the archive checksums, then extract each archive into its matching parent.
-Preserve ownership and ACLs. Start `actual_server` first, verify login and the
-budget, then start `actual_db_sync`; leave importer jobs stopped until account
-counts, balances, and the duplicate audit agree with the recorded baseline.
+Only restore during an announced outage. Run from the deployed Compose
+directory. Replace the timestamp once; the validation refuses any other path.
+
+```sh
+cd /var/lib/komodo-periphery/stacks/actual/stacks/actual
+backup_dir=/persist/backups/actual/YYYYMMDDTHHMMSSZ
+case "$backup_dir" in
+  /persist/backups/actual/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+  *) echo "ABORT: invalid backup path: $backup_dir" >&2; exit 1 ;;
+esac
+sudo test -f "$backup_dir/SHA256SUMS"
+sudo sh -c "cd '$backup_dir' && sha256sum -c SHA256SUMS"
+
+for importer in fints_sync_umwelt fints_sync_baader; do
+  if docker container inspect "$importer" >/dev/null 2>&1; then
+    docker stop --time 30 "$importer"
+  fi
+done
+docker compose stop actual_db_sync actual_server
+
+restore_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+rollback_dir=/persist/backups/actual/rollback-$restore_stamp
+sudo install -d -m 0700 "$rollback_dir"
+sudo mv /persist/docker/volumes/actual_server-data/_data \
+  "$rollback_dir/actual_server-data._data"
+sudo mv /persist/docker/volumes/actual_fints-state/_data \
+  "$rollback_dir/actual_fints-state._data"
+sudo mv /persist/docker/volumes/actual_db/_data \
+  "$rollback_dir/actual_db._data"
+
+sudo tar --xattrs --acls -xzf "$backup_dir/actual_server-data.tar.gz" \
+  -C /persist/docker/volumes/actual_server-data
+sudo tar --xattrs --acls -xzf "$backup_dir/actual_fints-state.tar.gz" \
+  -C /persist/docker/volumes/actual_fints-state
+sudo tar --xattrs --acls -xzf "$backup_dir/actual_db.tar.gz" \
+  -C /persist/docker/volumes/actual_db
+sudo chown -R 1000:1000 /persist/docker/volumes/actual_server-data/_data
+
+docker compose up -d actual_server
+curl --retry 30 --retry-delay 1 --retry-connrefused -fsS \
+  http://127.0.0.1:5006/ >/dev/null
+docker compose up -d actual_db_sync
+```
+
+Verify login, budget counts, balances, and the duplicate audit before running
+either importer. If verification fails, roll back using the exact directory
+printed above:
+
+```sh
+cd /var/lib/komodo-periphery/stacks/actual/stacks/actual
+rollback_dir=/persist/backups/actual/rollback-YYYYMMDDTHHMMSSZ
+case "$rollback_dir" in
+  /persist/backups/actual/rollback-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+  *) echo "ABORT: invalid rollback path: $rollback_dir" >&2; exit 1 ;;
+esac
+sudo test -d "$rollback_dir/actual_server-data._data"
+sudo test -d "$rollback_dir/actual_fints-state._data"
+sudo test -d "$rollback_dir/actual_db._data"
+docker compose stop actual_db_sync actual_server
+failed_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+failed_dir=/persist/backups/actual/failed-restore-$failed_stamp
+sudo install -d -m 0700 "$failed_dir"
+sudo mv /persist/docker/volumes/actual_server-data/_data \
+  "$failed_dir/actual_server-data._data"
+sudo mv /persist/docker/volumes/actual_fints-state/_data \
+  "$failed_dir/actual_fints-state._data"
+sudo mv /persist/docker/volumes/actual_db/_data \
+  "$failed_dir/actual_db._data"
+sudo mv "$rollback_dir/actual_server-data._data" \
+  /persist/docker/volumes/actual_server-data/_data
+sudo mv "$rollback_dir/actual_fints-state._data" \
+  /persist/docker/volumes/actual_fints-state/_data
+sudo mv "$rollback_dir/actual_db._data" \
+  /persist/docker/volumes/actual_db/_data
+docker compose up -d actual_server
+curl --retry 30 --retry-delay 1 --retry-connrefused -fsS \
+  http://127.0.0.1:5006/ >/dev/null
+docker compose up -d actual_db_sync
+```
 
 Do not restore by deleting a production volume in place, and do not use this
 procedure to merge duplicate transactions.
