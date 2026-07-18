@@ -66,6 +66,24 @@ test('imports a validated canonical batch with deleted-record protection', async
   }]);
 });
 
+test('sanitizes malicious requested range strings in success and failure manifests', async () => {
+  for (const shouldFail of [false, true]) {
+    const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+    const malicious = structuredClone(payload);
+    malicious.requested_range = { from: '2026-07-01 PIN=1234', to: 'IBAN PRIVATE PAYEE' };
+    if (shouldFail) malicious.accounts[0].transactions.push({ ...transaction });
+    await runImport({
+      payload: malicious, config, registry,
+      actualApi: { async importTransactions() { return { added: [], updated: [] }; } },
+      manifestDir, dryRun: false,
+      now: () => new Date('2026-07-18T10:00:00.000Z'),
+    }).catch(() => {});
+    const [manifest] = await manifestsIn(manifestDir);
+    assert.deepEqual(manifest.requested_range, { from: null, to: null });
+    assert.doesNotMatch(JSON.stringify(manifest), /PIN|IBAN|PRIVATE|PAYEE|1234/i);
+  }
+});
+
 test('validation failure makes no API calls and writes no sensitive fields', async () => {
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   let calls = 0;
@@ -112,4 +130,68 @@ test('dry run validates and records counts without calling Actual', async () => 
   });
   assert.equal(calls, 0);
   assert.equal(result.outcome, 'dry_run');
+});
+
+test('seed balance prepends the stable canonical opening balance transaction', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const seeded = structuredClone(payload);
+  seeded.accounts[0].balances = [{ type: 'OPBD', date: '2026-07-01', amount_cents: 5000, currency: 'EUR' }];
+  let records;
+  await runImport({
+    payload: seeded, config, registry,
+    actualApi: { async importTransactions(_id, value) { records = value; return {}; } },
+    manifestDir, seedBalance: true,
+    now: () => new Date('2026-07-18T10:00:00.000Z'),
+  });
+  assert.deepEqual(records[0], {
+    date: '2026-06-30', amount: 5000, payee_name: 'Opening Balance',
+    imported_payee: 'Opening Balance',
+    notes: 'Seeded from camt.052 OPBD 2026-07-01 50.00 EUR',
+    imported_id: 'fints-fixture:fixture-cash:fints-bridge-opening-balance-actual-account-1',
+    cleared: true,
+  });
+});
+
+test('dry run emits canonical transaction JSON through the injected output', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const output = [];
+  await runImport({
+    payload, config, registry, actualApi: {}, manifestDir, dryRun: true,
+    output: (value) => output.push(value),
+    now: () => new Date('2026-07-18T10:00:00.000Z'),
+  });
+  const parsed = JSON.parse(output.join(''));
+  assert.equal(parsed['actual-account-1'][0].imported_id, 'fints-fixture:fixture-cash:bank-id-1');
+  assert.equal(parsed['actual-account-1'][0].notes, 'PRIVATE NOTE');
+});
+
+test('restores depot revaluation and holdings persistence', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const stateDir = await mkdtemp(join(tmpdir(), 'import-state-'));
+  const depotPayload = {
+    bank: { key: 'fixture' },
+    accounts: [{ iban: 'DEPOT-ID', type: 'depot', holdings: [{ total_value_cents: 15000, isin: 'TEST' }] }],
+  };
+  const depotConfig = { banks: { fixture: { accounts: [{ iban: 'DEPOT-ID', actual_account_id: 'depot-1' }] } } };
+  const depotRegistry = [{ actual_account_id: 'depot-1', source: 'fints-fixture', source_account: 'fixture-depot', enabled: true }];
+  const calls = [];
+  const fakeActual = {
+    async getTransactions(...args) { calls.push(['get', ...args]); return [{ id: 'old', imported_id: 'fints-bridge-depot-revaluation-old', amount: 2000 }, { amount: 1000 }]; },
+    async deleteTransaction(id) { calls.push(['delete', id]); },
+    async importTransactions(...args) { calls.push(['import', ...args]); return { added: ['new'], updated: [] }; },
+  };
+  await runImport({
+    payload: depotPayload, config: depotConfig, registry: depotRegistry,
+    actualApi: fakeActual, manifestDir, stateDir,
+    now: () => new Date('2026-07-18T10:00:00.000Z'),
+  });
+  assert.deepEqual(calls[0], ['get', 'depot-1', '1900-01-01', '2100-01-01']);
+  assert.deepEqual(calls[1], ['delete', 'old']);
+  assert.equal(calls[2][0], 'import');
+  assert.equal(calls[2][1], 'depot-1');
+  assert.equal(calls[2][2][0].amount, 14000);
+  assert.deepEqual(calls[2][3], { reimportDeleted: false });
+  const holdings = JSON.parse(await readFile(join(stateDir, 'holdings.json'), 'utf8'));
+  assert.equal(holdings.holdings[0].isin, 'TEST');
+  assert.equal(holdings.holdings[0].depot_actual_account_id, 'depot-1');
 });
