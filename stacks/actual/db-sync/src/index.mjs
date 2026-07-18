@@ -13,7 +13,8 @@ const PASSWORD = process.env.ACTUAL_PASSWORD;
 const SYNC_ID = process.env.ACTUAL_BUDGET_ID;
 const FINTS_STATUS_PATH = process.env.FINTS_STATUS_PATH ?? '/fints/fints-status.json';
 const HOLDINGS_PATH = process.env.HOLDINGS_PATH ?? '/fints/holdings.json';
-const BUDGET_PATH = process.env.BUDGET_PATH ?? '/budget/budget.json';
+const MANIFEST_DIR = process.env.IMPORT_MANIFEST_DIR ?? '/fints/import-runs';
+const ACCOUNTS_REGISTRY_PATH = process.env.ACCOUNTS_REGISTRY_PATH ?? '/config/accounts.json';
 const DB_PATH = process.env.ACTUAL_DB_PATH ?? '/db/actual.sqlite';
 const ACTUAL_DATA_DIR = process.env.ACTUAL_DATA_DIR ?? path.join(os.tmpdir(), 'actual-db-sync');
 
@@ -36,7 +37,9 @@ async function refresh() {
     await api.init({ dataDir: ACTUAL_DATA_DIR, serverURL: SERVER_URL, password: PASSWORD });
     try {
       await api.downloadBudget(SYNC_ID);
-      const counts = await syncToSqlite(DB_PATH, FINTS_STATUS_PATH, HOLDINGS_PATH, BUDGET_PATH);
+      const counts = await syncToSqlite(
+        DB_PATH, FINTS_STATUS_PATH, HOLDINGS_PATH, MANIFEST_DIR, ACCOUNTS_REGISTRY_PATH,
+      );
       console.error(
         `[sync] ok in ${((Date.now() - start) / 1000).toFixed(1)}s ` +
         `— ${counts.transactions} txs, ${counts.accounts} accounts, ${counts.subscriptions} subs, ` +

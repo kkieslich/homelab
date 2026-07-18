@@ -107,6 +107,11 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_pipeline_source_finished ON pipeline_runs(source, finished_at);
 
+CREATE TABLE IF NOT EXISTS expected_sources (
+  source                    TEXT PRIMARY KEY,
+  expected_cadence_seconds  INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS data_quality (
   check_id      TEXT PRIMARY KEY,
   checked_at    TEXT NOT NULL,
@@ -129,6 +134,18 @@ CREATE TABLE IF NOT EXISTS budget_snapshots (
   balance_cents  INTEGER NOT NULL,
   carried_cents  INTEGER NOT NULL,
   PRIMARY KEY (month, captured_at, category_id)
+);
+
+CREATE TABLE IF NOT EXISTS current_budgets (
+  month          TEXT NOT NULL,
+  category_id    TEXT NOT NULL,
+  category_name  TEXT NOT NULL,
+  category_role  TEXT NOT NULL,
+  budgeted_cents INTEGER NOT NULL,
+  spent_cents    INTEGER NOT NULL,
+  balance_cents  INTEGER NOT NULL,
+  carried_cents  INTEGER NOT NULL,
+  PRIMARY KEY (month, category_id)
 );
 
 CREATE TABLE IF NOT EXISTS net_worth_snapshots (
@@ -239,9 +256,15 @@ WITH latest_runs AS (
   SELECT p.* FROM pipeline_runs p
   WHERE p.finished_at = (SELECT MAX(q.finished_at) FROM pipeline_runs q WHERE q.source = p.source)
 ), reasons(reason) AS (
-  SELECT 'stale_source' FROM latest_runs
-   WHERE expected_cadence_seconds IS NOT NULL
-     AND strftime('%s','now') - strftime('%s',finished_at) > expected_cadence_seconds
+  SELECT 'missing_source_run' FROM expected_sources expected
+   LEFT JOIN latest_runs run ON run.source = expected.source
+   WHERE run.run_id IS NULL
+  UNION SELECT 'missing_source_cadence' FROM expected_sources
+   WHERE expected_cadence_seconds IS NULL OR expected_cadence_seconds <= 0
+  UNION SELECT 'stale_source' FROM expected_sources expected
+   JOIN latest_runs run ON run.source = expected.source
+   WHERE expected.expected_cadence_seconds > 0
+     AND strftime('%s','now') - strftime('%s',run.finished_at) > expected.expected_cadence_seconds
   UNION SELECT 'reconciliation_gap' FROM data_quality quality
    JOIN accounts account ON account.id = quality.account_id AND account.closed = 0
    WHERE quality.kind = 'reconciliation_gap' AND quality.resolved = 0

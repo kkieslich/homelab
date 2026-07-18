@@ -45,11 +45,14 @@ test('the production ownership registry defines all seven accounts without bank 
       'actual_account_id',
       'display_name',
       'enabled',
+      'expected_cadence_seconds',
       'interactive_auth',
       'role',
       'source',
       'source_account',
     ]);
+    assert.ok(Number.isInteger(entry.expected_cadence_seconds));
+    assert.ok(entry.expected_cadence_seconds > 0);
   }
   assert.doesNotMatch(raw, /iban|credential|password|accountnumber/i);
 });

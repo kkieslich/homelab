@@ -113,8 +113,8 @@ services:
       # Read-only fints-status.json + holdings.json so we can populate the
       # pipeline_status and holdings tables.
       - fints-state:/fints:ro
-      # Versioned budget.json so we can populate the budgets table.
-      - ./cli/config:/budget:ro
+      # Non-secret expected-source cadence configuration.
+      - ./cli/config/accounts.json:/config/accounts.json:ro
       # The SQLite read-replica. Shared with Grafana (monitoring stack mounts
       # this same named volume, actual_db, as external:true).
       - db:/db

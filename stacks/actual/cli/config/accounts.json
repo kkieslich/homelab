@@ -6,6 +6,7 @@
     "source_account": "baader-cash",
     "role": "on_budget_cash",
     "enabled": true,
+    "expected_cadence_seconds": 7200,
     "interactive_auth": true
   },
   {
@@ -15,6 +16,7 @@
     "source_account": "fnz-bank-depot",
     "role": "investment",
     "enabled": true,
+    "expected_cadence_seconds": 604800,
     "interactive_auth": false
   },
   {
@@ -24,6 +26,7 @@
     "source_account": "triodos-giro",
     "role": "on_budget_cash",
     "enabled": true,
+    "expected_cadence_seconds": 604800,
     "interactive_auth": false
   },
   {
@@ -33,6 +36,7 @@
     "source_account": "triodos-mastercard",
     "role": "credit_card",
     "enabled": true,
+    "expected_cadence_seconds": 604800,
     "interactive_auth": false
   },
   {
@@ -42,6 +46,7 @@
     "source_account": "umwelt-giro",
     "role": "on_budget_cash",
     "enabled": true,
+    "expected_cadence_seconds": 604800,
     "interactive_auth": true
   },
   {
@@ -51,6 +56,7 @@
     "source_account": "umwelt-mastercard",
     "role": "credit_card",
     "enabled": true,
+    "expected_cadence_seconds": 604800,
     "interactive_auth": true
   },
   {
@@ -60,6 +66,7 @@
     "source_account": "finanzen-zero-depot",
     "role": "investment",
     "enabled": true,
+    "expected_cadence_seconds": 7200,
     "interactive_auth": true
   }
 ]

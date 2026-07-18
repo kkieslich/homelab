@@ -71,6 +71,7 @@ test('canonical views isolate consumption, ordinary income, and investment contr
 
 test('finance trust exposes machine-readable reasons for every trust gate', () => {
   const db = projection();
+  db.prepare(`INSERT INTO expected_sources VALUES ('bank-a',3600),('bank-b',3600)`).run();
   db.prepare(`INSERT INTO pipeline_runs
     (run_id,source,finished_at,expected_cadence_seconds,outcome,quarantined,resolved)
     VALUES ('stale','bank-a','2020-01-01T00:00:00Z',3600,'success',0,1),
@@ -93,26 +94,36 @@ test('finance trust exposes machine-readable reasons for every trust gate', () =
   db.close();
 });
 
-test('unknown active category role leaves the previous readable SQLite snapshot intact', async () => {
+test('late projection failure leaves previous schema, rows, and views unchanged', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'actual-semantics-'));
   const dbPath = path.join(dir, 'actual.sqlite');
   const existing = new Database(dbPath);
-  existing.exec('CREATE TABLE sentinel(value TEXT); INSERT INTO sentinel VALUES (\'previous\')');
+  existing.exec(`CREATE TABLE sentinel(value TEXT);
+    INSERT INTO sentinel VALUES ('previous');
+    CREATE VIEW sentinel_view AS SELECT upper(value) AS value FROM sentinel;`);
+  const beforeSchema = existing.prepare("SELECT type,name,sql FROM sqlite_master WHERE name LIKE 'sentinel%' ORDER BY name").all();
   existing.close();
   const snapshot = {
-    accounts: [], categories: [], payees: [], transactions: [], balances: {}, budgetMonths: [],
-    categoryGroups: [{ id: 'unknown', name: 'Unknown active', hidden: false }],
+    accounts: [
+      { id: 'duplicate', name: 'One', offbudget: false, closed: false },
+      { id: 'duplicate', name: 'Two', offbudget: false, closed: false },
+    ],
+    categories: [], payees: [], transactions: [], balances: { duplicate: 1 }, budgetMonths: [],
+    categoryGroups: [],
   };
   await assert.rejects(
-    syncToSqlite(dbPath, null, null, null, { snapshot }),
-    /unknown active category group/i,
+    syncToSqlite(dbPath, null, null, null, null, { snapshot, expectedSources: [] }),
+    /unique constraint failed/i,
   );
   const retained = new Database(dbPath, { readonly: true });
   assert.equal(retained.prepare('SELECT value FROM sentinel').pluck().get(), 'previous');
+  assert.equal(retained.prepare('SELECT value FROM sentinel_view').pluck().get(), 'PREVIOUS');
+  assert.deepEqual(retained.prepare("SELECT type,name,sql FROM sqlite_master WHERE name LIKE 'sentinel%' ORDER BY name").all(), beforeSchema);
+  assert.equal(retained.prepare("SELECT COUNT(*) FROM sqlite_master WHERE name='accounts'").pluck().get(), 0);
   retained.close();
 });
 
-test('sync stores Actual budget-month fields and sanitized import manifests transactionally', async () => {
+test('routine sync replaces current budget state without touching immutable month-close snapshots', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'actual-projection-'));
   const manifests = path.join(dir, 'runs');
   fs.mkdirSync(manifests);
@@ -122,6 +133,11 @@ test('sync stores Actual budget-month fields and sanitized import manifests tran
     requested_range: { from: '2026-07-01', to: '2026-07-18' }, outcome: 'success', error_code: null,
     accounts: [{ actual_account_id: 'checking', fetched: 2, valid: 2, added: 1, updated: 1, quarantined: 0 }],
   }));
+  const registryPath = path.join(dir, 'accounts.json');
+  fs.writeFileSync(registryPath, JSON.stringify([{
+    actual_account_id: 'checking', source: 'fints-bank', enabled: true,
+    expected_cadence_seconds: 86400,
+  }]));
   const snapshot = {
     accounts: [{ id: 'checking', name: 'Checking', offbudget: false, closed: false }],
     categoryGroups: [{ id: 'essential', name: 'Flexible essentials', hidden: false }],
@@ -133,14 +149,38 @@ test('sync stores Actual budget-month fields and sanitized import manifests tran
     }] }],
   };
   const dbPath = path.join(dir, 'actual.sqlite');
-  await syncToSqlite(dbPath, null, null, manifests, {
-    snapshot, now: new Date('2026-07-31T23:59:00Z'), expectedCadenceSeconds: { 'fints-bank': 86400 },
+  const seed = new Database(dbPath);
+  seed.exec(SCHEMA);
+  seed.prepare(`INSERT INTO budget_snapshots VALUES
+    ('2026-06','2026-06-30T23:59:00Z','old','Old','fixed',1,2,3,4)`).run();
+  seed.prepare(`INSERT INTO net_worth_snapshots VALUES
+    ('2026-06','2026-06-30T23:59:00Z','old',999)`).run();
+  seed.close();
+  await syncToSqlite(dbPath, null, null, manifests, registryPath, {
+    snapshot, now: new Date('2026-07-31T23:59:00Z'),
   });
   const db = new Database(dbPath, { readonly: true });
-  assert.deepEqual(db.prepare('SELECT budgeted_cents,spent_cents,balance_cents,carried_cents FROM budget_snapshots').get(),
+  assert.deepEqual(db.prepare('SELECT budgeted_cents,spent_cents,balance_cents,carried_cents FROM current_budgets').get(),
     { budgeted_cents: 40000, spent_cents: -12300, balance_cents: 28200, carried_cents: 500 });
   assert.deepEqual(db.prepare('SELECT fetched,valid,added,updated,quarantined FROM pipeline_runs').get(),
     { fetched: 2, valid: 2, added: 1, updated: 1, quarantined: 0 });
+  assert.deepEqual(db.prepare('SELECT * FROM expected_sources').get(),
+    { source: 'fints-bank', expected_cadence_seconds: 86400 });
+  assert.equal(db.prepare('SELECT COUNT(*) FROM budget_snapshots').pluck().get(), 1);
   assert.equal(db.prepare('SELECT COUNT(*) FROM net_worth_snapshots').pluck().get(), 1);
+  db.close();
+});
+
+test('finance trust rejects expected sources with no run or no cadence', () => {
+  const db = projection();
+  db.prepare('INSERT INTO expected_sources VALUES (?, ?)').run('weekly-manual', 604800);
+  db.prepare('INSERT INTO expected_sources VALUES (?, ?)').run('missing-cadence', null);
+  db.prepare(`INSERT INTO pipeline_runs
+    (run_id,source,finished_at,outcome) VALUES ('present','missing-cadence',datetime('now'),'success')`).run();
+  const trust = db.prepare('SELECT trusted,reasons FROM finance_trust').get();
+  assert.equal(trust.trusted, 0);
+  const reasons = JSON.parse(trust.reasons);
+  assert.ok(reasons.includes('missing_source_run'));
+  assert.ok(reasons.includes('missing_source_cadence'));
   db.close();
 });

@@ -36,3 +36,28 @@ Implemented and verified without live deployment or data writes.
 - Actual exposes carryover as a flag. The carried amount is therefore derived as `balance - budgeted - spent` when the flag is set.
 - Expected cadence is stored per manifest source when supplied by runtime configuration. A source without an expected cadence cannot be judged stale; deployment configuration must provide these values.
 - Reconciliation gaps are consumed from `data_quality`; generating them requires an authoritative external closing balance and remains outside this task's available Actual snapshot data.
+
+## Review remediation
+
+All three review findings were addressed test-first.
+
+### Red/green record
+
+1. RED: a late duplicate-account failure left schema objects created before the data transaction. GREEN: `BEGIN IMMEDIATE` now encloses compatibility migrations, schema/view creation, and all data changes; rollback preserves the former tables, rows, and views byte-for-byte at the SQL-schema level, and `db.close()` runs in `finally`.
+2. RED: routine sync appended both immutable snapshot tables. GREEN: routine Actual budget-month values now replace `current_budgets`; `budget_snapshots` and `net_worth_snapshots` are untouched for Task 10's explicit month-close capture.
+3. RED: `finance_trust` knew only about sources with manifests and `expected_sources` was absent. GREEN: enabled sources and exact cadences are deduplicated from the mounted non-secret account registry. Missing run, missing/invalid cadence, and stale run are independently fail-closed reasons.
+
+### Configuration
+
+- `fints-fnz`: 7,200 seconds, allowing one missed hourly daemon cycle before becoming stale.
+- `fints-umwelt`: 604,800 seconds because authentication makes this a weekly manual import.
+- `manual-actual`: 604,800 seconds for weekly manual review/import activity.
+
+### Fresh verification
+
+- `npm --prefix db-sync test`: 6 passed, 0 failed.
+- `node --check db-sync/src/sync.mjs`: passed.
+- `node --check db-sync/src/index.mjs`: passed.
+- `git diff --check`: passed.
+- `docker compose config --quiet`: passed.
+- Full neighboring regression suites: Actual CLI 9/9, FinTS bridge 28/28, db-sync 6/6.

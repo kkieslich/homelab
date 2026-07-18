@@ -56,6 +56,21 @@ async function readManifests(directory) {
   return manifests;
 }
 
+async function readExpectedSources(registryPath, supplied) {
+  const entries = supplied ?? await readJsonIfExists(registryPath);
+  if (!Array.isArray(entries)) throw new Error('Expected-source registry is missing or invalid');
+  const sources = new Map();
+  for (const entry of entries) {
+    if (!entry?.source || (!supplied && !entry.enabled)) continue;
+    const cadence = entry.expected_cadence_seconds;
+    if (!sources.has(entry.source)) sources.set(entry.source, cadence ?? null);
+    else if (sources.get(entry.source) !== (cadence ?? null)) {
+      throw new Error(`Conflicting expected cadence for source: ${entry.source}`);
+    }
+  }
+  return [...sources].map(([source, expected_cadence_seconds]) => ({ source, expected_cadence_seconds }));
+}
+
 function ensureSchemaMigrations(db) {
   const columns = db.prepare("SELECT name FROM pragma_table_info('transactions')").pluck().all();
   if (columns.length > 0 && !columns.includes('category_role')) db.exec('ALTER TABLE transactions ADD COLUMN category_role TEXT');
@@ -63,7 +78,7 @@ function ensureSchemaMigrations(db) {
 
 // Replace the contents of every table in a single transaction. SQLite WAL mode
 // keeps Grafana queries non-blocking against the previous snapshot.
-export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manifestDir, options = {}) {
+export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manifestDir, registryPath, options = {}) {
   const snapshot = options.snapshot ?? await buildSnapshot();
   // Semantic validation deliberately happens before opening or modifying the
   // replica, so a bad Actual category setup leaves the prior file readable.
@@ -76,6 +91,7 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
     ? path.join(path.dirname(fintsStatusPath), 'import-runs')
     : manifestDir;
   const manifests = await readManifests(effectiveManifestDir);
+  const expectedSources = await readExpectedSources(registryPath, options.expectedSources);
 
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
@@ -85,8 +101,11 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
   // briefly block during our transaction (~2-3s every 5 min). Acceptable.
   db.pragma('journal_mode = DELETE');
   db.pragma('synchronous = NORMAL');
-  ensureSchemaMigrations(db);
-  db.exec(SCHEMA_SQL);
+  let counts;
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    ensureSchemaMigrations(db);
+    db.exec(SCHEMA_SQL);
 
   const groupNameById = new Map(snapshot.categoryGroups.map((g) => [g.id, g.name]));
   const groupById = new Map(snapshot.categoryGroups.map((g) => [g.id, g]));
@@ -133,20 +152,25 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
       snapshot_iso, snapshot_unix, depot_account_id, isin, name, pieces, total_value_cents
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
-  const insertBudgetSnapshot = db.prepare(`INSERT OR IGNORE INTO budget_snapshots
-    (month,captured_at,category_id,category_name,category_role,budgeted_cents,spent_cents,balance_cents,carried_cents)
-    VALUES (?,?,?,?,?,?,?,?,?)`);
-  const insertNetWorthSnapshot = db.prepare(`INSERT OR IGNORE INTO net_worth_snapshots
-    (month,captured_at,account_id,balance_cents) VALUES (?,?,?,?)`);
+  const insertCurrentBudget = db.prepare(`INSERT INTO current_budgets
+    (month,category_id,category_name,category_role,budgeted_cents,spent_cents,balance_cents,carried_cents)
+    VALUES (?,?,?,?,?,?,?,?)`);
+  const insertExpectedSource = db.prepare(
+    'INSERT INTO expected_sources (source,expected_cadence_seconds) VALUES (?,?)',
+  );
   const insertRun = db.prepare(`INSERT OR REPLACE INTO pipeline_runs
     (run_id,source,started_at,finished_at,requested_from,requested_to,importer_version,
      fetched,valid,added,updated,quarantined,outcome,error_code,expected_cadence_seconds,resolved)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const accountNameById = new Map(snapshot.accounts.map((a) => [a.id, a.name]));
 
-  const txn = db.transaction(() => {
+  {
     // holdings_history is intentionally NOT deleted — it's append-only.
-    db.exec('DELETE FROM accounts; DELETE FROM categories; DELETE FROM payees; DELETE FROM transactions; DELETE FROM subscriptions; DELETE FROM pipeline_status; DELETE FROM holdings; DELETE FROM budgets;');
+    db.exec('DELETE FROM accounts; DELETE FROM categories; DELETE FROM payees; DELETE FROM transactions; DELETE FROM subscriptions; DELETE FROM pipeline_status; DELETE FROM holdings; DELETE FROM budgets; DELETE FROM current_budgets; DELETE FROM expected_sources;');
+
+    for (const source of expectedSources) {
+      insertExpectedSource.run(source.source, source.expected_cadence_seconds);
+    }
 
     const offBudget = new Set(snapshot.accounts.filter((a) => a.offbudget).map((a) => a.id));
 
@@ -243,8 +267,8 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         if (group.is_income || group.hidden) continue;
         const role = deriveCategoryRole(group.name);
         for (const category of group.categories ?? []) {
-          insertBudgetSnapshot.run(
-            monthData.month, capturedAt, category.id, category.name, role,
+          insertCurrentBudget.run(
+            monthData.month, category.id, category.name, role,
             category.budgeted ?? 0, category.spent ?? 0, category.balance ?? 0,
             typeof category.carryover === 'number'
               ? category.carryover
@@ -253,11 +277,6 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         }
       }
     }
-    const captureMonth = capturedAt.slice(0, 7);
-    for (const account of snapshot.accounts) {
-      insertNetWorthSnapshot.run(captureMonth, capturedAt, account.id, snapshot.balances[account.id] ?? 0);
-    }
-
     for (const manifest of manifests) {
       const totals = (manifest.accounts ?? []).reduce((sum, account) => {
         for (const key of ['fetched', 'valid', 'added', 'updated', 'quarantined']) sum[key] += Number(account[key]) || 0;
@@ -268,22 +287,27 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         manifest.requested_range?.from ?? null, manifest.requested_range?.to ?? null,
         manifest.importer_version ?? null, totals.fetched, totals.valid, totals.added, totals.updated,
         totals.quarantined, manifest.outcome, manifest.error_code ?? null,
-        options.expectedCadenceSeconds?.[manifest.source] ?? null,
+        expectedSources.find((source) => source.source === manifest.source)?.expected_cadence_seconds ?? null,
         totals.quarantined === 0 ? 1 : 0,
       );
     }
-  });
-  txn();
+  }
 
-  const counts = {
+  counts = {
     accounts: db.prepare('SELECT COUNT(*) AS n FROM accounts').get().n,
     transactions: db.prepare('SELECT COUNT(*) AS n FROM transactions').get().n,
     subscriptions: db.prepare('SELECT COUNT(*) AS n FROM subscriptions').get().n,
     holdings: db.prepare('SELECT COUNT(*) AS n FROM holdings').get().n,
     holdings_history: db.prepare('SELECT COUNT(*) AS n FROM holdings_history').get().n,
-    budgets: db.prepare('SELECT COUNT(*) AS n FROM budget_snapshots').get().n,
+    budgets: db.prepare('SELECT COUNT(*) AS n FROM current_budgets').get().n,
   };
-  db.close();
+    db.exec('COMMIT');
+  } catch (error) {
+    if (db.inTransaction) db.exec('ROLLBACK');
+    throw error;
+  } finally {
+    db.close();
+  }
   // Make sure Grafana (UID 472) can read regardless of who wrote the file.
   fs.chmodSync(dbPath, 0o644);
   return counts;
