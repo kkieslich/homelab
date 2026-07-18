@@ -1,7 +1,7 @@
 # Final critical importer fixes
 
 Date: 2026-07-18
-Implementation commit: `7683571`
+Implementation commits: `7683571`, `e7795d0`
 Production access/deployment: none
 
 ## Scope
@@ -47,14 +47,31 @@ Observed 17 pass / 6 fail:
 - unique legacy history was imported without an ID migration;
 - ambiguous legacy history did not reject and did not quarantine.
 
-A second RED cycle caught a mutable-field flaw before commit:
+A second RED cycle caught the first mutable-field flaw:
 
 ```sh
 node --test test/canonical.test.mjs
 ```
 
 Observed 5 pass / 1 fail: a `PDNG` to `BOOK` transition changed the fingerprint.
-`status` was then removed from identity input.
+Removing only `status` was insufficient: realistic lifecycle review showed that
+value date, servicer metadata, payee, purpose, and even a weak raw reference may
+change between pending and booked states.
+
+The follow-up lifecycle RED run observed 6 pass / 3 fail (including one test
+file parse error that was corrected before evaluating behavior):
+
+- a strong unchanged bank reference produced different identities after
+  realistic metadata changes;
+- a booked weak-reference refetch changed identity when only value date and
+  servicer metadata changed;
+- after correcting the test syntax, a pending weak-reference record was written
+  instead of being held and counted as quarantined.
+
+Additional RED behavior tests covered changed depot value, multiple prior depot
+adjustments, and later-account ambiguity preventing an earlier-account
+migration. The existing implementation already satisfied those three global
+atomicity behaviors; the tests now make them explicit regressions.
 
 ## Design and safety properties
 
@@ -74,14 +91,23 @@ Observed 5 pass / 1 fail: a `PDNG` to `BOOK` transition changed the fingerprint.
 
 ### Canonical identity and legacy migration
 
-- Retain the normalized, namespaced raw bank reference for traceability.
-- Append a deterministic SHA-256 prefix over stable normalized transaction
-  fields: dates, signed amount, currency, payee, raw purpose, end-to-end ID, and
-  account-servicer reference. Mutable booking status is excluded.
-- Re-fetching identical bank data yields identical IDs. Reused references with
-  stable differentiators yield distinct IDs. Truly indistinguishable duplicates
-  retain the same ID and are rejected by batch validation rather than invented
-  as new transactions.
+- Classify evidenced non-unique placeholders (`STARTUMS`, `NONREF`, `NOREF`,
+  `NOTPROVIDED`, `NOT PROVIDED`, `UNKNOWN`, `NONE`, and `N/A`) as weak
+  references. Other non-empty bank references are treated as strong.
+- A strong reference remains the primary namespaced identity. Pending-to-booked
+  changes to status, value date, servicer metadata, payee, or purpose do not
+  change that identity.
+- A pending weak-reference transaction is not written to Actual. It is counted
+  as fetched and quarantined until the bank supplies a booked row. The booked
+  row may carry either a final strong reference or the same weak placeholder.
+- A booked weak reference is qualified with a deterministic SHA-256 prefix over
+  only booked-stable normalized fields: booking date, signed amount, currency,
+  payee, and purpose. Value date, status, end-to-end ID, and servicer metadata
+  are deliberately excluded from weak identity.
+- Re-fetching booked data yields identical IDs. Reused weak references with
+  stable differentiators yield distinct IDs. Truly indistinguishable booked
+  rows retain the same ID and fail batch validation rather than receiving a
+  fetch-order-dependent occurrence number.
 - Before any mutation, read every affected account and plan legacy migration.
   Candidate aliases include the raw bank ID and the earlier namespaced but
   unqualified canonical ID. A candidate must also exactly match date, signed
@@ -96,7 +122,7 @@ Observed 5 pass / 1 fail: a `PDNG` to `BOOK` transition changed the fingerprint.
 
 ```text
 FinTS importer: npm test
-42 tests, 42 pass, 0 fail
+49 tests, 49 pass, 0 fail
 
 Related Actual CLI: npm test
 14 tests, 14 pass, 0 fail
@@ -108,11 +134,13 @@ git diff --check
 exit 0
 ```
 
-Coverage added includes sequential depot cycles, injected atomic-update failure,
-one effective valuation, no delete calls, nine reused references, repeated-fetch
-idempotence, same-day equal-amount differentiators, pending-to-booked identity,
-unique legacy migration, ambiguous legacy quarantine, deleted-record options,
-and zero writes on ambiguity.
+Coverage includes sequential depot cycles, changed-value single-row update,
+injected atomic-update failure, multiple-prior fail-closed behavior, one
+effective valuation, no delete calls, nine reused references, repeated-fetch
+idempotence, same-day equal-amount differentiators, pending weak quarantine,
+booked weak stability, strong-reference lifecycle stability, indistinguishable
+weak-row rejection, unique legacy migration, later-account ambiguity blocking
+earlier-account writes, deleted-record options, and zero writes on ambiguity.
 
 ## Residual risks
 
@@ -122,7 +150,9 @@ and zero writes on ambiguity.
 - Two genuinely distinct bank movements with every stable identity field equal
   are not safely distinguishable. The importer rejects/quarantines instead of
   guessing an occurrence number that could drift between fetch windows.
+- Weak-reference classification is an explicit conservative allowlist. A newly
+  observed bank placeholder must be added with a fixture/test before it receives
+  content-qualified handling; until then it is treated as a strong reference.
 - `updateTransaction` is an atomic Actual API mutation, but a network loss after
   server commit and before acknowledgement is inherently ambiguous. Stable IDs
   and in-place updates make the next retry converge safely.
-
