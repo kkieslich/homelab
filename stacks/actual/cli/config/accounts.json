@@ -11,28 +11,28 @@
   {
     "actual_account_id": "964fd294-b9c2-48a6-81ba-74f0d7470a29",
     "display_name": "FNZ Bank Depot",
-    "source": "legacy-fnz",
+    "source": "manual-actual",
     "source_account": "fnz-bank-depot",
     "role": "investment",
-    "enabled": false,
-    "interactive_auth": true
+    "enabled": true,
+    "interactive_auth": false
   },
   {
     "actual_account_id": "d4ac8e5b-d0d3-43e9-ac05-29ff6c0f2e93",
     "display_name": "Triodos Giro",
-    "source": "legacy-triodos",
+    "source": "manual-actual",
     "source_account": "triodos-giro",
     "role": "on_budget_cash",
-    "enabled": false,
+    "enabled": true,
     "interactive_auth": false
   },
   {
     "actual_account_id": "e2e7ab6d-e53d-416b-a56c-58f30d421160",
     "display_name": "Triodos MasterCard",
-    "source": "legacy-triodos",
+    "source": "manual-actual",
     "source_account": "triodos-mastercard",
     "role": "credit_card",
-    "enabled": false,
+    "enabled": true,
     "interactive_auth": false
   },
   {

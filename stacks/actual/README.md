@@ -47,8 +47,10 @@ Grafana lives in [`stacks/monitoring/`](../../stacks/monitoring/) and reads the 
 | [`cli/config/`](cli/config/) | Versioned categorization rules and monthly budget targets. |
 | [`db-sync/`](db-sync/) | The SQLite read-replica writer. Reuses `cli/`'s subscription detector. |
 | [`fints-actual-bridge/`](fints-actual-bridge/) | Python+Node bridge that fetches credit-card transactions via FinTS (which exposes them, unlike PSD2) and imports them into Actual. Runs manually due to interactive SCA. See its own README for protocol notes. |
-| `/persist/appdata/actual/server-data` | Bind mount for `actual_server`. |
-| `/persist/appdata/actual/fints-state` | FinTS runtime state, fetch output, status, and holdings files. |
+| [`runbooks/restore.md`](runbooks/restore.md) | Verified backup, restore-drill, and guarded duplicate-cleanup procedure. |
+| `/persist/docker/volumes/actual_server-data/_data` | Production named-volume data for `actual_server`. |
+| `/persist/docker/volumes/actual_fints-state/_data` | Production FinTS runtime state, fetch output, status, and holdings files. |
+| `/persist/docker/volumes/actual_db/_data` | Production SQLite read replica shared with Grafana. |
 | `banks.toml.enc` | SOPS-encrypted bank/account mapping, decrypted by Komodo pre-deploy. |
 
 ## SQLite read-replica schema
@@ -116,6 +118,21 @@ Open Grafana → **Dashboards** → search "Actual":
 All four use the SQLite datasource (`uid: actual`) and run live SQL — copy any panel and modify the SQL to slice differently.
 
 ## Daily / weekly workflows
+
+### Import ownership
+
+[`cli/config/accounts.json`](cli/config/accounts.json) is the authoritative
+writer registry. Every account has exactly one enabled owner. The FinTS bridge
+owns UmweltBank and the active Baader accounts; `manual-actual` owns the
+historical Triodos and FNZ Depot accounts and means no automated importer may
+target them. The old date/index importer is not present in the deployed Komodo
+Compose stack and must not be reintroduced. Imports fail closed when their
+account does not match this registry.
+
+Before changing an owner or cleaning transactions, follow the
+[backup and restore runbook](runbooks/restore.md). Duplicate candidates are
+reviewed and merged through Actual; same-day matches are never deleted
+heuristically.
 
 ### "I want to import the latest bank transactions"
 
