@@ -34,7 +34,7 @@ The dashboards run real SQL against a year of historical data — not against a 
 |---|---|---|
 | `actual_server` | 5006 | The Actual Budget server itself. Accessed at https://actual.home.kki.berlin via Caddy. |
 | `fints_sync_umwelt` | — | Manual one-shot service for UmweltBank. Run through Komodo procedure **Actual - Sync UmweltBank now**. |
-| `fints_sync_baader` | — | Manual one-shot service for Baader / finanzen.net zero. Run through Komodo procedure **Actual - Sync Baader now**. |
+| `fints_daemon_baader` | — | Persistent interactive Baader daemon. It imports hourly after a one-time SMS TAN and is restarted through **Actual - Sync Baader now** when its session expires. |
 | `actual_db_sync` | — | Pulls a fresh snapshot from `actual_server` every 5 min and writes it to `/db/actual.sqlite` on the shared `/persist/appdata/actual/db` bind mount. |
 
 Grafana lives in [`stacks/monitoring/`](../../stacks/monitoring/) and reads the same `/persist/appdata/actual/db` directory.
@@ -141,6 +141,21 @@ Run the Komodo procedure for the bank you want to sync:
 - **Actual - Sync UmweltBank now**
 - **Actual - Sync Baader now**
 
+Wait until no other Actual Komodo procedure is active before restarting
+Baader; Komodo serializes stack operations. If Baader needs a new SMS TAN:
+
+```sh
+ssh -t kolja@192.168.1.20
+sudo docker attach fints_daemon_baader
+```
+
+Wait for `Enter TAN:`, type the SMS TAN, and press Enter. Detach with Ctrl-p
+then Ctrl-q; never use Ctrl-c. Check its health afterward with:
+
+```sh
+sudo docker logs --tail 100 fints_daemon_baader
+```
+
 This also writes `fints-status.json` so the Pipeline Health dashboard knows when each bank last synced. Then categorize:
 
 ```sh
@@ -172,7 +187,9 @@ One-time setup:
 4. Add `BANKS_FNZ_LOGIN` (your Baader Online-Banking name, **not** your finanzen.net zero web login) and `BANKS_FNZ_PIN` to `stacks/actual/.env`.
 5. If the first connection fails with a Product-ID error, register a free FinTS Product-ID at <https://www.hbci-zka.de/register/prod_register.htm> and add `FINTS_PRODUCT_ID=...` to `.env`.
 
-Then fetch and import the Baader data through Komodo procedure **Actual - Sync Baader now**.
+The persistent daemon fetches and imports hourly. When its FinTS session
+expires, use Komodo procedure **Actual - Sync Baader now** and attach to the
+container to enter the SMS TAN using the exact steps above.
 
 CLI fallback:
 ```sh
@@ -187,7 +204,10 @@ What gets imported:
 - **Holdings snapshot** for the Depot (ISIN, shares, market value, valuation date) — written to `holdings.json`. The bridge also emits a single "Holdings revaluation" transaction on the off-budget Depot account so its Actual balance equals the sum of `total_value` across positions. The transaction is keyed by date so re-runs replace the same adjustment instead of stacking.
 - Per-trade detail (price/share, fees) is **not** captured — that lives only in the PDF Wertpapierabrechnungen. If you need cost-basis tracking for tax, use Portfolio Performance's Baader PDF importer alongside.
 
-Baader imports are intentionally one-shot. If Baader rejects a FinTS request, the fetch fails closed and the importer will not revalue the depot from an empty holdings response.
+Baader imports retain the existing fail-closed behavior: a rejected, empty, or
+partial depot response is not imported and cannot revalue the depot to zero.
+The authenticated dialog is kept alive between hourly fetches to avoid an SMS
+TAN on every run.
 
 The new **Actual — Investments** Grafana dashboard reads from the SQLite `holdings` and `holdings_history` tables — current portfolio value, allocation pie, per-position time series, total cost basis vs. market value, and unrealised P/L on positions where Baader returns the acquisition price.
 

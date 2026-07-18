@@ -67,25 +67,30 @@ services:
         fints-fetch --bank umwelt --days 30 --out /state/umwelt-fetch.json
         node bin/import.mjs --bank umwelt --in /state/umwelt-fetch.json --registry /app/accounts.json --manifest-dir /state/import-runs
 
-  # Baader (finanzen.net zero): manual one-shot import. Baader has shown hard
-  # FinTS rejections that should not be retried forever, because a malformed
-  # empty depot response can make the portfolio look sold out. Run it from
-  # Komodo when you want to refresh cash transactions and holdings.
+  # Baader (finanzen.net zero): persistent interactive daemon. Baader offers
+  # smsTAN only, so keep the authenticated FinTS dialog alive between hourly
+  # imports. Attach to the TTY after start/session expiry to enter the TAN.
+  # Holdings fetches and imports remain fail-closed in the bridge.
   #
   # Komodo procedure: "Actual - Sync Baader now"
   # CLI fallback:
-  #   docker compose --profile manual run --rm --build fints_sync_baader
-  fints_sync_baader:
+  #   docker compose restart fints_daemon_baader
+  #   docker attach fints_daemon_baader
+  fints_daemon_baader:
     <<: *fints-base
-    profiles: ["manual"]
-    container_name: fints_sync_baader
-    restart: "no"
+    container_name: fints_daemon_baader
+    stdin_open: true
+    tty: true
     command:
-      - sh
-      - -ec
-      - |
-        fints-fetch --bank fnz --days 30 --out /state/fnz-fetch.json
-        node bin/import.mjs --bank fnz --in /state/fnz-fetch.json --registry /app/accounts.json --manifest-dir /state/import-runs
+      - fints-daemon
+      - --bank=fnz
+      - --out=/state/fnz-fetch.json
+      - --fetch-interval=3600
+      - --heartbeat-interval=180
+      - --days=30
+      - --import-after
+      - --importer
+      - node bin/import.mjs --registry /app/accounts.json --manifest-dir /state/import-runs
 
   # Mirrors the Actual server's data into a SQLite read-replica every
   # REFRESH_INTERVAL_SEC. Grafana mounts the same volume read-only and runs SQL

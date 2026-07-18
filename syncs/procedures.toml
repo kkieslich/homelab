@@ -76,19 +76,12 @@ executions = [
 
 [[procedure]]
 name = "Actual - Sync Baader now"
-description = "Runs the one-shot Baader/finanzen.net zero FinTS fetch/import job. This is manual so bank-side rejections do not loop forever."
+description = "Restarts the persistent Baader daemon. Wait for other Actual procedures to finish, then attach to its TTY if an SMS TAN is required."
 tags = ["prod", "um870", "actual", "manual"]
 
 [[procedure.config.stage]]
-name = "Run Baader import"
+name = "Restart Baader daemon"
 enabled = true
 executions = [
-  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "fints_sync_baader", enabled = true },
-]
-
-[[procedure.config.stage]]
-name = "Refresh Actual SQLite snapshot"
-enabled = true
-executions = [
-  { execution.type = "RestartStack", execution.params.stack = "actual", execution.params.services = ["actual_db_sync"], enabled = true },
+  { execution.type = "RestartStack", execution.params.stack = "actual", execution.params.services = ["fints_daemon_baader"], enabled = true },
 ]

@@ -31,17 +31,18 @@ data directory. Do not commit either export.
 
 ## Create the server backup
 
-Importer jobs are one-shot profile services. Stop only their explicitly named
-containers if they exist, then abort unless both are inactive. Do not stop
+Stop only the explicitly named importer containers if they exist, then abort
+unless both are inactive. The Baader daemon will require a fresh SMS TAN after
+it is started again. Do not stop
 `actual_server` or `actual_db_sync` for this procedure.
 
 ```sh
-for importer in fints_sync_umwelt fints_sync_baader; do
+for importer in fints_sync_umwelt fints_daemon_baader; do
   if docker container inspect "$importer" >/dev/null 2>&1; then
     docker stop --time 30 "$importer"
   fi
 done
-for importer in fints_sync_umwelt fints_sync_baader; do
+for importer in fints_sync_umwelt fints_daemon_baader; do
   if docker ps --quiet --filter "name=^/${importer}$" | grep -q .; then
     echo "ABORT: importer is still running: $importer" >&2
     exit 1
@@ -147,7 +148,7 @@ esac
 sudo test -f "$backup_dir/SHA256SUMS"
 sudo sh -c "cd '$backup_dir' && sha256sum -c SHA256SUMS"
 
-for importer in fints_sync_umwelt fints_sync_baader; do
+for importer in fints_sync_umwelt fints_daemon_baader; do
   if docker container inspect "$importer" >/dev/null 2>&1; then
     docker stop --time 30 "$importer"
   fi
