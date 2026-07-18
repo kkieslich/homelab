@@ -157,8 +157,8 @@ function duplicateCandidates(transactions, payeeNameById, checkedAt) {
   }; });
 }
 
-// Replace the contents of every table in a single transaction. SQLite WAL mode
-// keeps Grafana queries non-blocking against the previous snapshot.
+// Replace the contents of every table in one transaction. DELETE journaling
+// keeps the published file compatible with Grafana's read-only mount.
 export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manifestDir, registryPath, options = {}) {
   const snapshot = options.snapshot ?? await buildSnapshot();
   // Semantic validation deliberately happens before opening or modifying the
