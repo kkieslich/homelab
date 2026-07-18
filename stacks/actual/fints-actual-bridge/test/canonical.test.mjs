@@ -118,5 +118,11 @@ test('weak booked identity ignores non-stable value and servicer metadata', () =
 
 test('synthetic fetch fallback references are weak lifecycle identities', () => {
   assert.equal(isWeakSourceReference('syn_0123456789abcdef01234567'), true);
+  assert.equal(isWeakSourceReference('SYN_ABCDEF0123456789ABCDEF01'), true);
   assert.equal(isWeakSourceReference('REAL-BANK-REFERENCE'), false);
+  assert.equal(isWeakSourceReference('SYN_VALID_BANK_REFERENCE'), false);
+  assert.equal(isWeakSourceReference('syn_x'), false);
+  assert.equal(isWeakSourceReference('syn_0123456789abcdef0123456'), false);
+  assert.equal(isWeakSourceReference('syn_0123456789abcdef012345678'), false);
+  assert.equal(isWeakSourceReference('syn_0123456789abcdef0123456g'), false);
 });

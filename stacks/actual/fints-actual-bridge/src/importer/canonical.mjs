@@ -20,7 +20,8 @@ const WEAK_REFERENCES = new Set([
 
 export function isWeakSourceReference(value) {
   const reference = String(value ?? '').normalize('NFKC').trim().toUpperCase();
-  return WEAK_REFERENCES.has(reference) || reference.startsWith('SYN_');
+  // Both Python fetcher fallbacks emit syn_ + sha256(...).hexdigest()[:24].
+  return WEAK_REFERENCES.has(reference) || /^SYN_[0-9A-F]{24}$/u.test(reference);
 }
 
 export function canonicalSourceTransactionId(transaction) {
