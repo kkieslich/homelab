@@ -299,6 +299,7 @@ services:
   beerbot-migrator:
     image: ghcr.io/beerbotapp/beerbot/migrator:latest
     container_name: beerbot-migrator
+    command: ["sync", "--watch", "900"]
     restart: unless-stopped
     depends_on:
       beerbot-provision: { condition: service_completed_successfully }

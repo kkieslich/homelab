@@ -100,12 +100,15 @@ def main() -> int:
 
     caddyfile = (ROOT / "stacks" / "proxy" / "caddy" / "Caddyfile").read_text()
     proxy_compose = (ROOT / "stacks" / "proxy" / "docker-compose.yml").read_text()
+    beerbot_compose = (ROOT / "stacks" / "beerbot" / "docker-compose.yml").read_text()
     if "admin {$LEDFX_PASSWORD_HASH}" not in caddyfile:
         errors.append("proxy: LedFx password hash must use Caddy environment substitution")
     if "$2a$" in caddyfile or "$2b$" in caddyfile or "$2y$" in caddyfile:
         errors.append("proxy: Caddyfile contains an inline bcrypt hash")
     if "path: ./.env" not in proxy_compose:
         errors.append("proxy: Caddy service must consume its repo-decrypted .env")
+    if 'command: ["sync", "--watch", "900"]' not in beerbot_compose:
+        errors.append("beerbot: migrator wrapper must preserve sync --watch arguments")
     proxy_config = by_name["proxy"]["config"]
     if proxy_config.get("auto_pull") is not False:
         errors.append("proxy: periodic refresh requires auto_pull = false")
