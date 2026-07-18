@@ -25,12 +25,17 @@ COPY src/ ./src/
 RUN pip install --no-cache-dir -e .
 
 # Node deps for bin/import.mjs.
-COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
 
 # Project files (banks.toml is bind-mounted from the host so the user can edit
 # it without rebuilds).
 COPY bin/ ./bin/
+
+# The named state volume is mounted here at runtime. Keeping the directory in
+# the image also makes the CLI's default manifest destination usable in ad-hoc
+# container runs.
+RUN mkdir -p /state/import-runs
 
 ENV PYTHONUNBUFFERED=1
 ENV STATE_DIR=/state

@@ -1,342 +1,187 @@
 #!/usr/bin/env node
-// Reads a fints-fetch JSON payload (single-bank or multi-bank `--all` shape)
-// and imports it into a self-hosted Actual Budget server via @actual-app/api.
-//
-// Mapping IBAN -> Actual account UUID lives in banks.toml under
-// [[banks.<key>.accounts]] entries. Accounts not listed there are skipped.
-//
-// Usage:
-//   fints-fetch --bank umwelt | node bin/import.mjs --bank umwelt
-//   fints-fetch --all          | node bin/import.mjs --all
-//   node bin/import.mjs --bank umwelt --in /tmp/ub.json
-//   node bin/import.mjs --all  --in /tmp/all.json --dry-run
-//
-// Idempotent: every transaction's `imported_id` (the bank's AcctSvcrRef) is
-// passed to Actual as `imported_id`, and Actual's CRDT-based import dedupes on it.
 
-import process from 'node:process';
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import * as toml from 'smol-toml';
 import * as actual from '@actual-app/api';
+import * as toml from 'smol-toml';
 
-// Auto-load .env from CWD (Python's python-dotenv does this for fints-fetch;
-// match that for the Node side so users only maintain one .env file).
-// process.loadEnvFile is built-in since Node 21.7. Silent-no-op when .env is missing.
-try {
-  process.loadEnvFile('.env');
-} catch (err) {
-  if (err?.code !== 'ENOENT') throw err;
+import { toActualTransaction } from '../src/importer/canonical.mjs';
+import { writeRunManifest } from '../src/importer/manifest.mjs';
+import { validateOwnership } from '../src/importer/registry.mjs';
+import { validateBatch } from '../src/importer/validate.mjs';
+
+const IMPORTER_VERSION = '0.1.0';
+
+function instant(now) {
+  const value = typeof now === 'function' ? now() : new Date();
+  return (value instanceof Date ? value : new Date(value)).toISOString();
 }
 
-const args = parseArgs({
-  options: {
-    bank: { type: 'string' },
-    all: { type: 'boolean', default: false },
-    in: { type: 'string' },
-    config: { type: 'string', default: 'banks.toml' },
-    'data-dir': { type: 'string' },
-    'dry-run': { type: 'boolean', default: false },
-    'seed-balance': { type: 'boolean', default: false },
-  },
-}).values;
-
-if (!args.bank && !args.all) {
-  console.error('Usage: actual-import (--bank <name> | --all) [--in <path>] [--dry-run]');
-  process.exit(2);
-}
-if (args.bank && args.all) {
-  console.error('--bank and --all are mutually exclusive');
-  process.exit(2);
+function bankPayloads(payload) {
+  return payload?.banks ?? (payload?.bank ? [{ bank: payload.bank, accounts: payload.accounts ?? [] }] : []);
 }
 
-const cfgText = await fs.readFile(args.config, 'utf8').catch((err) => {
-  console.error(`Cannot read ${args.config}: ${err.message}`);
-  process.exit(1);
-});
-const cfg = toml.parse(cfgText);
-
-const actualCfg = cfg.actual;
-if (!actualCfg) {
-  console.error('Missing [actual] section in banks.toml');
-  process.exit(1);
-}
-const password = process.env[actualCfg.password_env];
-if (!password) {
-  console.error(`Missing env var ${actualCfg.password_env} for the Actual server password`);
-  process.exit(1);
-}
-const budgetPassword = actualCfg.budget_password_env ? process.env[actualCfg.budget_password_env] : undefined;
-
-// Returns { byIban: Map, byAccountNumber: Map } so depot accounts (which
-// commonly have no IBAN — Baader is one) can be matched by accountnumber.
-function loadBankMapping(bankKey) {
-  const bank = cfg.banks?.[bankKey];
-  if (!bank) {
-    console.error(`Bank '${bankKey}' not found in ${args.config}`);
-    return null;
-  }
-  const byIban = new Map();
-  const byAccountNumber = new Map();
-  for (const acc of bank.accounts ?? []) {
-    if (!acc.actual_account_id) continue;
-    if (acc.actual_account_id.startsWith('REPLACE')) continue;
-    if (acc.iban) byIban.set(acc.iban, acc);
-    if (acc.accountnumber) byAccountNumber.set(String(acc.accountnumber), acc);
-  }
-  if (byIban.size + byAccountNumber.size === 0) {
-    console.error(`[${bankKey}] no accounts configured (or all still set to REPLACE-...). Skipping.`);
-    return null;
-  }
-  return { byIban, byAccountNumber };
+function accountMapping(config, bankKey, account) {
+  return (config?.banks?.[bankKey]?.accounts ?? []).find((candidate) =>
+    (account.iban && candidate.iban === account.iban)
+    || (account.account_number != null && String(candidate.accountnumber) === String(account.account_number)));
 }
 
-function lookupAccount(mapping, accountBlob) {
-  if (accountBlob.iban && mapping.byIban.has(accountBlob.iban)) {
-    return mapping.byIban.get(accountBlob.iban);
-  }
-  if (accountBlob.account_number && mapping.byAccountNumber.has(String(accountBlob.account_number))) {
-    return mapping.byAccountNumber.get(String(accountBlob.account_number));
-  }
-  return null;
+function requestedRange(payload) {
+  const range = payload.requested_range ?? payload;
+  return {
+    from: range.from ?? range.start ?? payload.date_from ?? null,
+    to: range.to ?? range.end ?? payload.date_to ?? null,
+  };
 }
 
-const inputJson = args.in
-  ? await fs.readFile(args.in, 'utf8')
-  : await new Promise((resolve, reject) => {
-      let chunks = '';
-      process.stdin.setEncoding('utf8');
-      process.stdin.on('data', (c) => (chunks += c));
-      process.stdin.on('end', () => resolve(chunks));
-      process.stdin.on('error', reject);
-    });
-
-const payload = JSON.parse(inputJson);
-
-// Normalize: support both `{banks: [...]}` (multi) and legacy `{bank, accounts}` (single).
-const bankPayloads = payload.banks ?? (payload.bank ? [{ bank: payload.bank, accounts: payload.accounts ?? [] }] : []);
-if (bankPayloads.length === 0) {
-  console.error('Empty payload (no banks)');
-  process.exit(1);
+function resultCount(result, key) {
+  return Array.isArray(result?.[key]) ? result[key].length : 0;
 }
 
-// If --bank was passed, restrict to that one. Otherwise process every payload.
-const filtered = args.bank
-  ? bankPayloads.filter((p) => p.bank?.key === args.bank)
-  : bankPayloads;
-if (args.bank && filtered.length === 0) {
-  console.error(`Payload contains no entry for bank '${args.bank}'. Available: ${bankPayloads.map((p) => p.bank?.key).join(', ')}`);
-  process.exit(1);
-}
+export async function runImport({ payload, config, registry, actualApi, manifestDir, dryRun = false, now = () => new Date() }) {
+  const runId = randomUUID();
+  const startedAt = instant(now);
+  const batches = [];
+  const accounts = [];
+  const sources = new Set();
+  let errorCode = null;
 
-const txByActualId = new Map(); // actual_account_id -> Actual transaction records
-const actualIdToBank = new Map(); // actual_account_id -> bank key (for status report)
-// Depot accounts are handled differently — instead of importTransactions we
-// emit a single balance-adjustment transaction per account so the Actual balance
-// equals the sum of holdings' current market value. Holdings detail is exported
-// separately to <bridge>/holdings.json for the SQLite db-sync to pick up.
-const depotJobs = [];   // [{ bank, accountBlob, acc }]
-const allHoldings = []; // raw holding rows for holdings.json
-for (const bp of filtered) {
-  const bankKey = bp.bank?.key;
-  if (!bankKey) {
-    console.error('[skip] payload entry missing bank.key');
-    continue;
-  }
-  const mapping = loadBankMapping(bankKey);
-  if (!mapping) continue;
-  for (const accountBlob of bp.accounts ?? []) {
-    const acc = lookupAccount(mapping, accountBlob);
-    if (!acc) {
-      console.error(`[${bankKey}] [skip] account iban=${accountBlob.iban || '-'} accountnumber=${accountBlob.account_number || '-'} not in banks.toml mapping`);
-      continue;
-    }
-    actualIdToBank.set(acc.actual_account_id, bankKey);
+  try {
+    const ownership = validateOwnership(registry);
+    const banks = bankPayloads(payload);
+    if (banks.length === 0) throw new Error('empty payload');
 
-    if (accountBlob.type === 'depot') {
-      const holdings = accountBlob.holdings ?? [];
-      if (holdings.length === 0) {
-        console.error(`[${bankKey}] [depot] ${accountBlob.iban ?? accountBlob.account_number ?? '-'} (${acc.display_name ?? '?'}) returned 0 holdings; skipping depot revaluation to avoid treating a failed/stale fetch as a sold-out depot`);
-        continue;
-      }
-      depotJobs.push({ bankKey, accountBlob, acc });
-      for (const h of holdings) {
-        allHoldings.push({
-          bank: bankKey,
-          depot_iban: accountBlob.iban,
-          depot_actual_account_id: acc.actual_account_id,
-          depot_display_name: acc.display_name ?? accountBlob.iban,
-          ...h,
-        });
-      }
-      const total = holdings.reduce((s, h) => s + (h.total_value_cents || 0), 0);
-      console.error(`[${bankKey}] [depot] ${accountBlob.iban ?? accountBlob.account_number ?? '-'} (${acc.display_name ?? '?'}) → ${holdings.length} holdings, total €${(total / 100).toFixed(2)}`);
-      continue;
-    }
+    for (const bankPayload of banks) {
+      const bankKey = String(bankPayload.bank?.key ?? '').trim();
+      if (!bankKey) throw new Error('missing bank key');
+      for (const sourceAccount of bankPayload.accounts ?? []) {
+        if (sourceAccount.type === 'depot') continue;
+        const mapping = accountMapping(config, bankKey, sourceAccount);
+        if (!mapping?.actual_account_id) throw new Error('account mapping missing');
+        const owner = ownership.get(mapping.actual_account_id);
+        if (!owner?.enabled || owner.source !== `fints-${bankKey}`) throw new Error('account ownership mismatch');
+        sources.add(owner.source);
 
-    const records = (accountBlob.transactions ?? []).map((t) => ({
-      date: t.date,
-      amount: t.amount_cents,
-      payee_name: t.payee_name ?? undefined,
-      imported_payee: t.payee_name ?? undefined,
-      notes: t.notes ?? undefined,
-      imported_id: t.imported_id,
-      cleared: t.status === 'BOOK',
-    })).filter((r) => r.date && Number.isFinite(r.amount));
-
-    // Optional opening-balance seed: emit a synthetic transaction equal to OPBD
-    // dated one day before the OPBD date. Stable imported_id => idempotent across runs.
-    if (args['seed-balance']) {
-      const opbd = (accountBlob.balances ?? []).find((b) => b.type === 'OPBD');
-      if (opbd && opbd.date && Number.isFinite(opbd.amount_cents)) {
-        const seedDate = new Date(opbd.date + 'T00:00:00Z');
-        seedDate.setUTCDate(seedDate.getUTCDate() - 1);
-        const iso = seedDate.toISOString().slice(0, 10);
-        records.unshift({
-          date: iso,
-          amount: opbd.amount_cents,
-          payee_name: 'Opening Balance',
-          imported_payee: 'Opening Balance',
-          notes: `Seeded from camt.052 OPBD ${opbd.date} ${(opbd.amount_cents / 100).toFixed(2)} ${opbd.currency}`,
-          imported_id: `fints-bridge-opening-balance-${acc.actual_account_id}`,
-          cleared: true,
-        });
-        console.error(`[${bankKey}] [seed] ${accountBlob.iban} opening-balance ${(opbd.amount_cents / 100).toFixed(2)} ${opbd.currency} dated ${iso}`);
+        const rawTransactions = sourceAccount.transactions ?? [];
+        const records = rawTransactions.map((transaction) => toActualTransaction({
+          source: owner.source,
+          sourceAccount: owner.source_account,
+          transaction,
+        }));
+        const summary = {
+          actual_account_id: mapping.actual_account_id,
+          fetched: rawTransactions.length,
+          valid: 0,
+          added: 0,
+          updated: 0,
+          quarantined: 0,
+        };
+        accounts.push(summary);
+        const validated = validateBatch(records, { previousCount: rawTransactions.length });
+        summary.valid = validated.records.length;
+        summary.quarantined = validated.duplicateCandidates.length;
+        batches.push({ actualAccountId: mapping.actual_account_id, records: validated.records, summary });
       }
     }
 
-    console.error(`[${bankKey}] [map] ${accountBlob.iban} (${acc.display_name ?? '?'}) → actual=${acc.actual_account_id}: ${records.length} records`);
-    txByActualId.set(acc.actual_account_id, (txByActualId.get(acc.actual_account_id) ?? []).concat(records));
-  }
-}
-
-if (args.dry_run || args['dry-run']) {
-  console.log(JSON.stringify(Object.fromEntries(txByActualId), null, 2));
-  process.exit(0);
-}
-
-const dataDir = args['data-dir'] ?? join(tmpdir(), 'fints-actual-bridge');
-await fs.mkdir(dataDir, { recursive: true });
-
-// ACTUAL_SERVER_URL env wins over banks.toml so the daemon container can use
-// the internal docker DNS name (http://actual_server:5006) instead of the
-// public Caddy URL — bypasses TLS / hairpin-NAT issues when running in-cluster.
-const serverUrl = process.env.ACTUAL_SERVER_URL || actualCfg.server_url;
-console.error(`[actual] init server=${serverUrl} dataDir=${dataDir}`);
-await actual.init({ dataDir, serverURL: serverUrl, password });
-try {
-  console.error(`[actual] downloadBudget syncId=${actualCfg.sync_id}`);
-  await actual.downloadBudget(actualCfg.sync_id, budgetPassword ? { password: budgetPassword } : undefined);
-
-  let totalAdded = 0;
-  let totalUpdated = 0;
-  const perBank = new Map();  // bank key -> { added, updated }
-  for (const [actualId, records] of txByActualId.entries()) {
-    if (records.length === 0) continue;
-    console.error(`[actual] importTransactions account=${actualId} count=${records.length}`);
-    const result = await actual.importTransactions(actualId, records);
-    const added = result?.added?.length ?? 0;
-    const updated = result?.updated?.length ?? 0;
-    totalAdded += added;
-    totalUpdated += updated;
-    const bankKey = actualIdToBank.get(actualId);
-    if (bankKey) {
-      const bucket = perBank.get(bankKey) ?? { added: 0, updated: 0 };
-      bucket.added += added;
-      bucket.updated += updated;
-      perBank.set(bankKey, bucket);
+    if (!dryRun) {
+      for (const batch of batches) {
+        if (batch.records.length === 0) continue;
+        let result;
+        try {
+          result = await actualApi.importTransactions(batch.actualAccountId, batch.records, { reimportDeleted: false });
+        } catch {
+          errorCode = 'ACTUAL_IMPORT_FAILED';
+          throw new Error('Actual import failed');
+        }
+        batch.summary.added = resultCount(result, 'added');
+        batch.summary.updated = resultCount(result, 'updated');
+      }
     }
-    console.error(`[actual]   added=${added} updated=${updated}`);
-  }
-  console.error(`[actual] DONE  total added=${totalAdded}  total updated=${totalUpdated}`);
 
-  // Depot revaluation: for each depot account, write a single "Holdings
-  // revaluation" tx so the Actual balance equals SUM(holdings.total_value).
-  // Strategy: delete any prior revaluation tx (any date), recompute the delta
-  // from scratch, then write the fresh adjustment. This is robust to re-runs
-  // and to interleaving with stock-buy transfers — without it, the bridge
-  // would over- or under-state the depot if transfers landed between fetches.
-  const REVALUATION_PREFIX = 'fints-bridge-depot-revaluation-';
-  for (const job of depotJobs) {
-    const target = (job.accountBlob.holdings ?? []).reduce((s, h) => s + (h.total_value_cents || 0), 0);
-    const today = new Date().toISOString().slice(0, 10);
-
-    // Compute the depot balance EXCLUDING any prior revaluation txs (since we'll
-    // delete them and replace with a fresh one). Computing manually instead of
-    // calling getAccountBalance() avoids a cache issue: getAccountBalance still
-    // includes deleted-but-not-synced txs, which would break the delta math.
-    const existingTxs = await actual.getTransactions(job.acc.actual_account_id, '1900-01-01', '2100-01-01');
-    const priorRevals = existingTxs.filter((t) => (t.imported_id ?? '').startsWith(REVALUATION_PREFIX));
-    const nonRevalSum = existingTxs
-      .filter((t) => !(t.imported_id ?? '').startsWith(REVALUATION_PREFIX))
-      .reduce((s, t) => s + t.amount, 0);
-    for (const t of priorRevals) await actual.deleteTransaction(t.id);
-    if (priorRevals.length) console.error(`[depot-reval] ${job.bankKey} ${job.acc.display_name}: cleared ${priorRevals.length} prior revaluation tx(s)`);
-
-    const current = nonRevalSum;
-    const delta = target - current;
-    if (delta === 0) {
-      console.error(`[depot-reval] ${job.bankKey} ${job.acc.display_name}: balance already €${(target / 100).toFixed(2)}, no adjustment`);
-      continue;
-    }
-    const result = await actual.importTransactions(job.acc.actual_account_id, [{
-      date: today,
-      amount: delta,
-      payee_name: 'Holdings revaluation',
-      imported_payee: 'Holdings revaluation',
-      notes: `Auto-adjustment so depot balance equals SUM(holdings.total_value) = €${(target / 100).toFixed(2)}`,
-      imported_id: `fints-bridge-depot-revaluation-${job.acc.actual_account_id}-${today}`,
-      cleared: true,
-    }]);
-    const added = result?.added?.length ?? 0;
-    const updated = result?.updated?.length ?? 0;
-    console.error(`[depot-reval] ${job.bankKey} ${job.acc.display_name}: ${current/100}€ → ${target/100}€ (delta ${delta/100}€)  added=${added} updated=${updated}`);
-    // Make sure this bank shows a fresh last_run even if it had no cash txs.
-    const bucket = perBank.get(job.bankKey) ?? { added: 0, updated: 0 };
-    bucket.added += added;
-    bucket.updated += updated;
-    perBank.set(job.bankKey, bucket);
-  }
-
-  // State files (status + holdings) live under STATE_DIR — defaults to the
-  // bridge directory itself, but the daemon container sets it to /state so
-  // the files land on the volume db-sync also mounts.
-  const stateDir = process.env.STATE_DIR
-    ? process.env.STATE_DIR
-    : new URL('..', import.meta.url).pathname;
-
-  // Holdings snapshot for db-sync to import into SQLite (current + history).
-  if (!args['dry-run'] && allHoldings.length > 0) {
-    const holdingsPath = join(stateDir, 'holdings.json');
-    const holdingsPayload = {
-      fetched_at: new Date().toISOString(),
-      holdings: allHoldings,
+    const manifest = {
+      schema_version: 1, run_id: runId,
+      source: sources.size === 1 ? [...sources][0] : 'multiple',
+      importer_version: IMPORTER_VERSION,
+      started_at: startedAt, finished_at: instant(now),
+      requested_range: requestedRange(payload), accounts,
+      outcome: dryRun ? 'dry_run' : 'success', error_code: null,
     };
-    await fs.writeFile(holdingsPath, JSON.stringify(holdingsPayload, null, 2) + '\n');
-    console.error(`[holdings] wrote ${holdingsPath} (${allHoldings.length} positions)`);
+    await writeRunManifest(join(manifestDir, `${runId}.json`), manifest);
+    return manifest;
+  } catch (cause) {
+    const manifest = {
+      schema_version: 1, run_id: runId,
+      source: sources.size === 1 ? [...sources][0] : 'unknown',
+      importer_version: IMPORTER_VERSION,
+      started_at: startedAt, finished_at: instant(now),
+      requested_range: requestedRange(payload ?? {}), accounts,
+      outcome: 'failed', error_code: errorCode ?? 'VALIDATION_FAILED',
+    };
+    await writeRunManifest(join(manifestDir, `${runId}.json`), manifest);
+    throw new Error(errorCode ? 'Actual import failed' : 'Import validation failed', { cause });
+  }
+}
+
+async function readStdin() {
+  let data = '';
+  process.stdin.setEncoding('utf8');
+  for await (const chunk of process.stdin) data += chunk;
+  return data;
+}
+
+async function main() {
+  try { process.loadEnvFile('.env'); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  const args = parseArgs({ options: {
+    bank: { type: 'string' }, all: { type: 'boolean', default: false }, in: { type: 'string' },
+    config: { type: 'string', default: 'banks.toml' }, registry: { type: 'string', default: 'accounts.json' },
+    'manifest-dir': { type: 'string', default: join(process.env.STATE_DIR ?? '.', 'import-runs') },
+    'data-dir': { type: 'string' }, 'dry-run': { type: 'boolean', default: false },
+    'seed-balance': { type: 'boolean', default: false },
+  } }).values;
+  if ((!args.bank && !args.all) || (args.bank && args.all)) {
+    console.error('Usage: actual-import (--bank <name> | --all) [--in <path>] [--dry-run]');
+    process.exitCode = 2;
+    return;
   }
 
-  // Status marker: read by actual_db_sync for the pipeline_status table. We
-  // merge into existing entries so a single-bank import doesn't drop the other
-  // bank's last-run record.
-  if (!args['dry-run']) {
-    const statusPath = join(stateDir, 'fints-status.json');
-    let status = { last_runs: {} };
-    try {
-      const existing = await fs.readFile(statusPath, 'utf8');
-      status = { last_runs: {}, ...JSON.parse(existing) };
-    } catch (err) {
-      if (err?.code !== 'ENOENT') throw err;
-    }
-    const ts = new Date().toISOString();
-    for (const [bankKey, bucket] of perBank.entries()) {
-      status.last_runs[bankKey] = { ts, ...bucket };
-    }
-    await fs.writeFile(statusPath, JSON.stringify(status, null, 2) + '\n');
-    console.error(`[status] wrote ${statusPath}`);
+  const config = toml.parse(await fs.readFile(args.config, 'utf8'));
+  const registry = JSON.parse(await fs.readFile(args.registry, 'utf8'));
+  const payload = JSON.parse(args.in ? await fs.readFile(args.in, 'utf8') : await readStdin());
+  if (args.bank) {
+    const filtered = bankPayloads(payload).filter((item) => item.bank?.key === args.bank);
+    if (filtered.length === 0) throw new Error(`Payload contains no entry for bank '${args.bank}'`);
+    payload.banks = filtered;
+    delete payload.bank;
+    delete payload.accounts;
   }
-} finally {
-  await actual.shutdown();
+
+  if (args['dry-run']) {
+    await runImport({ payload, config, registry, actualApi: actual, manifestDir: args['manifest-dir'], dryRun: true });
+    return;
+  }
+  const actualConfig = config.actual;
+  if (!actualConfig) throw new Error('Missing [actual] section in banks.toml');
+  const password = process.env[actualConfig.password_env];
+  if (!password) throw new Error(`Missing env var ${actualConfig.password_env} for the Actual server password`);
+  const dataDir = args['data-dir'] ?? join(tmpdir(), 'fints-actual-bridge');
+  await fs.mkdir(dataDir, { recursive: true });
+  await actual.init({ dataDir, serverURL: process.env.ACTUAL_SERVER_URL || actualConfig.server_url, password });
+  try {
+    const budgetPassword = actualConfig.budget_password_env ? process.env[actualConfig.budget_password_env] : undefined;
+    await actual.downloadBudget(actualConfig.sync_id, budgetPassword ? { password: budgetPassword } : undefined);
+    await runImport({ payload, config, registry, actualApi: actual, manifestDir: args['manifest-dir'] });
+  } finally {
+    await actual.shutdown();
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL(`file://${process.argv[1]}`))) {
+  main().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

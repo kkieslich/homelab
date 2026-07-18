@@ -22,6 +22,8 @@ x-fints-base: &fints-base
     # banks.toml is decrypted from banks.toml.enc by pre_deploy (0644, no owner
     # strictness — read-only config).
     - ./banks.toml:/app/banks.toml:ro
+    # Non-secret writer ownership registry used by the guarded importer.
+    - ./cli/config/accounts.json:/app/accounts.json:ro
     # State directory (dialog/state/holdings/status files). Shared with
     # actual_db_sync so the SQLite tables auto-update after each fetch.
     - fints-state:/state
@@ -63,7 +65,7 @@ services:
       - -ec
       - |
         fints-fetch --bank umwelt --days 30 --out /state/umwelt-fetch.json
-        node bin/import.mjs --bank umwelt --in /state/umwelt-fetch.json
+        node bin/import.mjs --bank umwelt --in /state/umwelt-fetch.json --registry /app/accounts.json --manifest-dir /state/import-runs
 
   # Baader (finanzen.net zero): manual one-shot import. Baader has shown hard
   # FinTS rejections that should not be retried forever, because a malformed
@@ -83,7 +85,7 @@ services:
       - -ec
       - |
         fints-fetch --bank fnz --days 30 --out /state/fnz-fetch.json
-        node bin/import.mjs --bank fnz --in /state/fnz-fetch.json
+        node bin/import.mjs --bank fnz --in /state/fnz-fetch.json --registry /app/accounts.json --manifest-dir /state/import-runs
 
   # Mirrors the Actual server's data into a SQLite read-replica every
   # REFRESH_INTERVAL_SEC. Grafana mounts the same volume read-only and runs SQL
