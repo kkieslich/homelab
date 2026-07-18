@@ -1,4 +1,5 @@
 name: "mqtt"
+# This repository is the desired state; Komodo reconciles main automatically.
 services:
   mosquitto:
     image: eclipse-mosquitto:2
