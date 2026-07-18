@@ -113,6 +113,8 @@ def main() -> int:
         errors.append("proxy: missing SOPS pre_deploy decryption")
 
     beerbot_config = by_name["beerbot"]["config"]
+    if beerbot_config.get("auto_pull") is not False:
+        errors.append("beerbot: Git deploys must leave image pulls to Global Auto Update")
     beerbot_pre_deploy = beerbot_config.get("pre_deploy", {}).get("command", "")
     for required in ("registry.env.enc", "old-vps.key.enc", "docker login"):
         if required not in beerbot_pre_deploy:

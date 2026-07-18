@@ -141,6 +141,10 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/beerbot"
 file_paths = ["docker-compose.yml"]
+# Repository reconciliation uses the already present images; the dedicated
+# Global Auto Update job owns digest pulls and avoids Docker Hub rate-limit
+# failures blocking secret/config-only deploys.
+auto_pull = false
 # Private GHCR images — pre_deploy decrypts the repo-owned registry credential
 # and logs the Periphery Docker client in before Compose pulls images.
 # Auto-deploy on new images: Komodo polls GHCR for a new digest on the :latest
