@@ -15,8 +15,18 @@ import { deriveCategoryRole, validateCategoryGroups } from './semantics.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA_SQL = fs.readFileSync(path.join(HERE, 'schema.sql'), 'utf8');
 
+export function capturedDay(value, timeZone = process.env.ACTUAL_TIMEZONE ?? 'Europe/Berlin') {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(value).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 export async function buildSnapshot() {
   const accounts = await api.getAccounts();
+  const metadataResult = await api.aqlQuery(api.q('accounts').select(['id', 'last_reconciled']));
+  const metadata = new Map((metadataResult?.data ?? []).map((account) => [account.id, account]));
+  for (const account of accounts) account.last_reconciled = metadata.get(account.id)?.last_reconciled ?? null;
   const categoryGroups = await api.getCategoryGroups();
   const categories = await api.getCategories();
   const payees = await api.getPayees();
@@ -26,14 +36,19 @@ export async function buildSnapshot() {
     for (const t of txs) transactions.push({ ...t, account_name: acct.name });
   }
   const balances = {};
+  const balanceAsOf = {};
+  const timeZone = process.env.ACTUAL_TIMEZONE ?? 'Europe/Berlin';
+  const cutoffDay = capturedDay(new Date(), timeZone);
+  const cutoff = new Date(`${cutoffDay}T12:00:00Z`);
   for (const acct of accounts) {
-    balances[acct.id] = await api.getAccountBalance(acct.id);
+    balances[acct.id] = await api.getAccountBalance(acct.id, cutoff);
+    balanceAsOf[acct.id] = cutoffDay;
   }
   const budgetMonths = [];
   for (const month of await api.getBudgetMonths()) budgetMonths.push(await api.getBudgetMonth(month));
   const schedules = await api.getSchedules();
   return {
-    accounts, categoryGroups, categories, payees, transactions, balances, budgetMonths, schedules,
+    accounts, categoryGroups, categories, payees, transactions, balances, balanceAsOf, budgetMonths, schedules,
     schedulesFetchedAt: new Date().toISOString(),
   };
 }
@@ -67,13 +82,13 @@ async function readExpectedSources(registryPath, supplied) {
   const sources = new Map();
   for (const entry of entries) {
     if (!entry?.source || (!supplied && !entry.enabled)) continue;
+    const accountId = entry.actual_account_id ?? entry.account_id;
+    if (!accountId) throw new Error('Expected-source account id is missing');
     const cadence = entry.expected_cadence_seconds;
-    if (!sources.has(entry.source)) sources.set(entry.source, cadence ?? null);
-    else if (sources.get(entry.source) !== (cadence ?? null)) {
-      throw new Error(`Conflicting expected cadence for source: ${entry.source}`);
-    }
+    if (sources.has(accountId)) throw new Error(`Duplicate expected account: ${accountId}`);
+    sources.set(accountId, { source: entry.source, expected_cadence_seconds: cadence ?? null });
   }
-  return [...sources].map(([source, expected_cadence_seconds]) => ({ source, expected_cadence_seconds }));
+  return [...sources].map(([account_id, value]) => ({ account_id, ...value }));
 }
 
 function ensureSchemaMigrations(db) {
@@ -86,12 +101,26 @@ function ensureSchemaMigrations(db) {
   if (quality.length > 0 && !quality.includes('producer')) {
     db.exec("ALTER TABLE data_quality ADD COLUMN producer TEXT NOT NULL DEFAULT 'manual'");
   }
+  const expected = db.prepare("SELECT name FROM pragma_table_info('expected_sources')").pluck().all();
+  if (expected.length > 0 && !expected.includes('account_id')) db.exec('DROP TABLE expected_sources');
 }
 
 function scheduleRole(name) {
   const match = /^\[(Fixed|Essential|Discretionary|Sinking fund|Savings|Income)\]\s+/iu.exec(String(name ?? ''));
   if (!match) return null;
   return match[1].toLocaleLowerCase('und').replaceAll(' ', '_');
+}
+
+function validIsoDay(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(String(value ?? ''))) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
+function validSourceInstant(value, now) {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.getTime() <= now.getTime() + 5 * 60 * 1000;
 }
 
 function normalizedPayee(value) {
@@ -110,7 +139,7 @@ function duplicateCandidates(transactions, payeeNameById, checkedAt) {
     groups.set(key, group);
   }
   return [...groups.entries()].filter(([, ids]) => ids.length > 1).map(([key, ids]) => ({
-    check_id: `duplicate_candidate:${createHash('sha256').update(key).digest('hex').slice(0, 24)}`,
+    check_id: `duplicate_candidate:${createHash('sha256').update(`${key}\u0000${ids.slice().sort().join('\u0000')}`).digest('hex').slice(0, 24)}`,
     checked_at: checkedAt,
     kind: 'duplicate_candidate',
     account_id: key.split('\u0000')[0],
@@ -198,12 +227,19 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
     (month,category_id,category_name,category_role,budgeted_cents,spent_cents,balance_cents,carried_cents)
     VALUES (?,?,?,?,?,?,?,?)`);
   const insertExpectedSource = db.prepare(
-    'INSERT INTO expected_sources (source,expected_cadence_seconds) VALUES (?,?)',
+    'INSERT INTO expected_sources (account_id,source,expected_cadence_seconds) VALUES (?,?,?)',
   );
   const insertRun = db.prepare(`INSERT OR REPLACE INTO pipeline_runs
     (run_id,source,started_at,finished_at,requested_from,requested_to,importer_version,
      fetched,valid,added,updated,quarantined,outcome,error_code,expected_cadence_seconds,resolved)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const insertRunAccount = db.prepare(`INSERT OR REPLACE INTO pipeline_run_accounts
+    (run_id,account_id,source,requested_from,requested_to,outcome,
+     fetched,valid,added,updated,quarantined) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+  const insertAccountProjection = db.prepare(`INSERT INTO account_projection
+    (account_id,balance_as_of,last_reconciled,checked_at) VALUES (?,?,?,?)`);
+  const insertBudgetProjection = db.prepare(`INSERT INTO budget_projection
+    (fetched_at,complete,current_month,max_age_seconds,detail) VALUES (?,?,?,?,?)`);
   const accountNameById = new Map(snapshot.accounts.map((a) => [a.id, a.name]));
   const insertSchedule = db.prepare(`INSERT INTO current_schedules
     (id,name,role,due_date,amount_cents,completed,fetched_at) VALUES (?,?,?,?,?,?,?)`);
@@ -218,16 +254,20 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
 
   {
     // holdings_history is intentionally NOT deleted — it's append-only.
-    db.exec("DELETE FROM accounts; DELETE FROM categories; DELETE FROM payees; DELETE FROM transactions; DELETE FROM subscriptions; DELETE FROM pipeline_status; DELETE FROM holdings; DELETE FROM budgets; DELETE FROM current_budgets; DELETE FROM expected_sources; DELETE FROM current_schedules; DELETE FROM schedule_projection; DELETE FROM data_quality WHERE producer='db-sync';");
+    db.exec("DELETE FROM accounts; DELETE FROM account_projection; DELETE FROM categories; DELETE FROM payees; DELETE FROM transactions; DELETE FROM subscriptions; DELETE FROM pipeline_status; DELETE FROM holdings; DELETE FROM budgets; DELETE FROM current_budgets; DELETE FROM budget_projection; DELETE FROM expected_sources; DELETE FROM current_schedules; DELETE FROM schedule_projection; DELETE FROM data_quality WHERE producer='db-sync';");
 
     for (const source of expectedSources) {
-      insertExpectedSource.run(source.source, source.expected_cadence_seconds);
+      insertExpectedSource.run(source.account_id, source.source, source.expected_cadence_seconds);
     }
 
     const offBudget = new Set(snapshot.accounts.filter((a) => a.offbudget).map((a) => a.id));
 
     for (const a of snapshot.accounts) {
       insertAccount.run(a.id, a.name, a.offbudget ? 1 : 0, a.closed ? 1 : 0, snapshot.balances[a.id] ?? 0);
+      if (validIsoDay(snapshot.balanceAsOf?.[a.id])) {
+        insertAccountProjection.run(a.id, snapshot.balanceAsOf[a.id],
+          validIsoDay(a.last_reconciled) ? a.last_reconciled : null, (options.now ?? new Date()).toISOString());
+      }
     }
     for (const c of snapshot.categories) {
       insertCategory.run(c.id, c.name, groupNameById.get(c.group_id) ?? null, c.is_income ? 1 : 0);
@@ -313,18 +353,21 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
       }
     }
 
-    const capturedAt = (options.now ?? new Date()).toISOString();
+    const projectionNow = options.now ?? new Date();
+    const capturedAt = projectionNow.toISOString();
     const schedulesFetchedAt = snapshot.schedulesFetchedAt ?? capturedAt;
     const schedules = snapshot.schedules;
-    if (!Array.isArray(schedules)) {
+    if (!Array.isArray(schedules) || !validSourceInstant(schedulesFetchedAt, projectionNow)) {
       insertScheduleProjection.run(schedulesFetchedAt, 0, 'Actual schedule API data missing', 900);
     } else {
       let complete = 1;
       for (const schedule of schedules) {
         const role = scheduleRole(schedule.name);
-        const hasRequiredData = Boolean(schedule.id && schedule.name && schedule.next_date)
-          && Number.isInteger(schedule.amount);
-        if (!schedule.completed && (!role || !hasRequiredData)) complete = 0;
+        const signValid = role === 'income' ? schedule.amount > 0 : schedule.amount < 0;
+        const hasRequiredData = Boolean(schedule.id && schedule.name)
+          && validIsoDay(schedule.next_date) && typeof schedule.completed === 'boolean'
+          && schedule.amountOp === 'is' && Number.isInteger(schedule.amount) && signValid;
+        if (!role || !hasRequiredData) complete = 0;
         if (!schedule.id) continue;
         insertSchedule.run(schedule.id, schedule.name ?? 'Unnamed schedule', role, schedule.next_date ?? null,
           Number.isInteger(schedule.amount) ? schedule.amount : null, schedule.completed ? 1 : 0, schedulesFetchedAt);
@@ -338,11 +381,20 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         candidate.account_id, candidate.detail, null, priorQualityResolutions.get(candidate.check_id) ?? 0,
         'warning', 'db-sync');
     }
-    // The public Actual API exposes current balance but not the authoritative
-    // reconciled balance/date. Emit capability state instead of a fabricated
-    // zero-gap check; reconciliation remains an explicit month-close action.
-    insertQuality.run('reconciliation_unavailable:actual-api', capturedAt, 'reconciliation_unavailable',
-      'actual-api', null, 'Public Actual API has no reconciled balance metadata', null, 1, 'info', 'db-sync');
+    const reconciliationCutoff = new Date(`${capturedDay(projectionNow)}T12:00:00Z`);
+    reconciliationCutoff.setUTCDate(reconciliationCutoff.getUTCDate() - 35);
+    const reconciliationDay = reconciliationCutoff.toISOString().slice(0, 10);
+    for (const account of snapshot.accounts.filter((account) => !account.closed)) {
+      const reconciled = validIsoDay(account.last_reconciled) ? account.last_reconciled : null;
+      if (!reconciled) {
+        insertQuality.run(`reconciliation_missing:${account.id}`, capturedAt, 'reconciliation_missing',
+          'actual-api', account.id, 'No authoritative Actual reconciliation date', null, 0, 'error', 'db-sync');
+      } else if (reconciled < reconciliationDay) {
+        insertQuality.run(`reconciliation_stale:${account.id}:${reconciled}`, capturedAt, 'reconciliation_stale',
+          'actual-api', account.id, JSON.stringify({ last_reconciled: reconciled, max_age_days: 35 }),
+          null, 0, 'error', 'db-sync');
+      }
+    }
     for (const monthData of snapshot.budgetMonths ?? []) {
       for (const group of monthData.categoryGroups ?? []) {
         if (group.is_income || group.hidden) continue;
@@ -358,6 +410,10 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         }
       }
     }
+    const currentMonth = capturedDay(projectionNow).slice(0, 7);
+    const currentRows = db.prepare('SELECT COUNT(*) FROM current_budgets WHERE month=?').pluck().get(currentMonth);
+    insertBudgetProjection.run(capturedAt, currentRows > 0 ? 1 : 0,
+      currentRows > 0 ? currentMonth : null, 900, currentRows > 0 ? 'authoritative_actual_api' : 'current_month_missing');
     for (const manifest of manifests) {
       const totals = (manifest.accounts ?? []).reduce((sum, account) => {
         for (const key of ['fetched', 'valid', 'added', 'updated', 'quarantined']) sum[key] += Number(account[key]) || 0;
@@ -371,6 +427,16 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         expectedSources.find((source) => source.source === manifest.source)?.expected_cadence_seconds ?? null,
         totals.quarantined === 0 ? 1 : 0,
       );
+      for (const account of manifest.accounts ?? []) {
+        const expected = expectedSources.find((source) => source.account_id === account.actual_account_id);
+        const source = manifest.source === 'unknown' || manifest.source === 'multiple'
+          ? expected?.source : manifest.source;
+        if (!source) continue;
+        insertRunAccount.run(manifest.run_id, account.actual_account_id, source,
+          manifest.requested_range?.from ?? null, manifest.requested_range?.to ?? null,
+          manifest.outcome, account.fetched ?? null, account.valid ?? null, account.added ?? null,
+          account.updated ?? null, account.quarantined ?? 0);
+      }
     }
   }
 

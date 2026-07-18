@@ -65,15 +65,20 @@ export function captureMonthClose({ dbPath, month, apply = false, capturedAt, no
     if (!budgets.length) throw new Error(`No current budget data for ${month}`);
     const monthEndExclusive = new Date(`${month}-01T00:00:00Z`);
     monthEndExclusive.setUTCMonth(monthEndExclusive.getUTCMonth() + 1);
+    const boundary = monthEndExclusive.toISOString().slice(0, 10);
+    const missingProjection = db.prepare(`SELECT a.id FROM accounts a
+      LEFT JOIN account_projection p ON p.account_id=a.id
+      WHERE p.account_id IS NULL OR p.balance_as_of<?`).all(boundary);
+    if (missingProjection.length) throw new Error(`Account balance cutoff is incomplete for ${month}`);
     const accounts = db.prepare(`SELECT a.id,
-      a.balance_cents-COALESCE(SUM(CASE WHEN t.date>=? THEN t.amount_cents ELSE 0 END),0) balance_cents
-      FROM accounts a LEFT JOIN transactions t ON t.account_id=a.id
-      GROUP BY a.id,a.balance_cents ORDER BY a.id`).all(monthEndExclusive.toISOString().slice(0, 10));
+      a.balance_cents-COALESCE(SUM(CASE WHEN t.date>=? AND t.date<=p.balance_as_of THEN t.amount_cents ELSE 0 END),0) balance_cents
+      FROM accounts a JOIN account_projection p ON p.account_id=a.id LEFT JOIN transactions t ON t.account_id=a.id
+      GROUP BY a.id,a.balance_cents,p.balance_as_of ORDER BY a.id`).all(monthEndExclusive.toISOString().slice(0, 10));
     const safeToSpend = db.prepare('SELECT * FROM safe_to_spend').get();
     const result = {
       month, captured_at: capture, budget_rows: budgets.length, net_worth_rows: accounts.length,
       applied: false, safe_to_spend: safeToSpend,
-      net_worth_basis: 'current Actual account balance minus complete projected transactions dated after month-end; includes open/closed and on/off-budget accounts',
+      net_worth_basis: 'Actual account balance explicitly cut off at account_projection.balance_as_of minus projected transactions from the next-month boundary through that cutoff; future transactions after cutoff excluded; includes open/closed and on/off-budget accounts',
     };
     if (!apply) return result;
     const write = db.transaction(() => {

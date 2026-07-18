@@ -20,6 +20,7 @@ test('calculates safe to spend including today and unpaid schedules through mont
     schedules: [
       { role: 'discretionary', amount: -4000, due: '2026-07-25', paid: false },
       { role: 'discretionary', amount: -1000, due: '2026-06-30', paid: false },
+      { role: 'discretionary', amount: -9999, due: '2026-08-01', paid: false },
     ],
     today: '2026-07-18',
   }), { month_cents: 20000, remaining_days: 14, per_day_cents: 1428 });
@@ -42,9 +43,14 @@ async function fixture({ review = false, annotate = false } = {}) {
   const db = new Database(dbPath);
   db.exec(SCHEMA);
   db.prepare(`INSERT INTO schedule_projection (fetched_at,complete,detail) VALUES (datetime('now'),1,'fixture')`).run();
+  db.prepare(`INSERT INTO budget_projection (fetched_at,complete,current_month,detail)
+    VALUES (datetime('now'),1,strftime('%Y-%m','now'),'fixture')`).run();
   db.prepare('INSERT INTO accounts VALUES (?,?,?,?,?)').run('checking', 'Checking', 0, 0, 12345);
+  db.prepare(`INSERT INTO account_projection VALUES ('checking','2026-07-01',NULL,'2026-07-01T00:00:00Z')`).run();
   db.prepare('INSERT INTO current_budgets VALUES (?,?,?,?,?,?,?,?)')
     .run('2026-06', 'food', 'Food', 'discretionary', 20000, -5000, 15000, 1000);
+  db.prepare(`INSERT OR IGNORE INTO current_budgets VALUES
+    (strftime('%Y-%m','now'),'current-fixture','Current fixture','discretionary',0,0,0,0)`).run();
   if (review) {
     db.prepare(`INSERT INTO transactions
       (id,date,account_id,account_name,account_offbudget,amount_cents,category_is_income,cleared,
@@ -128,6 +134,11 @@ test('month close computes every account balance at requested month-end', async 
            ('closed-later','2026-07-01','closed','Closed savings',1,-2000,0,1,1,0,'bank:closed-later',2026,'2026-07',1782864000),
            ('transfer-out','2026-07-02','checking','Checking',0,-1000,0,1,1,1,'bank:transfer-out',2026,'2026-07',1782950400),
            ('transfer-in','2026-07-02','savings','Savings',1,1000,0,1,1,1,'bank:transfer-in',2026,'2026-07',1782950400)`).run();
+  db.prepare(`INSERT INTO transactions
+    (id,date,account_id,account_name,account_offbudget,amount_cents,category_is_income,cleared,reconciled,is_transfer,imported_id,year,month,ymd_unix)
+    VALUES ('future','2026-08-01','checking','Checking',0,999999,0,0,0,0,'bank:future',2026,'2026-08',1785542400)`).run();
+  db.prepare(`INSERT OR REPLACE INTO account_projection (account_id,balance_as_of,last_reconciled,checked_at)
+    SELECT id,'2026-07-18',NULL,'2026-07-18T10:00:00Z' FROM accounts`).run();
   db.close();
   captureMonthClose({ dbPath, month: '2026-06', capturedAt: '2026-07-03T00:00:00Z', apply: true,
     now: new Date('2026-07-03T00:00:00Z') });

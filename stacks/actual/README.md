@@ -188,7 +188,11 @@ with one of `[Fixed] `, `[Essential] `, `[Discretionary] `, `[Sinking fund] `,
 future expense that must reduce safe-to-spend. Any active schedule without an
 explicit supported classification makes the projection untrusted; it is never silently omitted.
 The schedule snapshot is refreshed with the five-minute replica cycle and is
-considered stale after 15 minutes.
+considered stale after 15 minutes. Every schedule must also have a real calendar
+`next_date`, boolean completion state, and one exact integer amount
+(`amountOp=is`): expenses are negative and income is positive. Approximate,
+range, malformed, or future-skewed source evidence invalidates the whole
+schedule projection.
 
 ## Safe to spend and finance trust
 
@@ -206,10 +210,14 @@ obligations, sinking funds, or savings is never spendable merely because it is
 liquid.
 
 `finance_trust` is the analytical publication gate. It separately evaluates the
-latest attempted import and latest successful covered range: failed, dry-run,
-empty, partial-empty, missing, or stale-success histories cannot masquerade as
-current. Quarantine, non-zero authoritative reconciliation gaps, excess review
-backlog, invalid semantic mappings, and missing/incomplete/stale schedule data make the projection
+latest attempted import and latest successful covered range for every enabled
+Actual account. Coverage freshness is based on the bank window's `requested_to`
+date and that account's cadence—not the time a process happened to finish.
+Failed, dry-run, empty, partial-empty, missing-account, wrong-source, or
+old-window histories cannot masquerade as current. Quarantine, unresolved
+duplicate candidates, missing/stale Actual reconciliation dates, non-zero
+external reconciliation gaps, excess review backlog, invalid semantic mappings,
+and missing/incomplete/stale/wrong-month budget or schedule data make the projection
 untrusted. Headline Grafana values intentionally suppress themselves when trust
 is false. Fix the underlying ledger/pipeline issue; never edit the replica to
 force trust.
@@ -230,12 +238,21 @@ All use canonical SQLite models. Grafana is for exploration and diagnosis, not
 categorization, reconciliation, scheduling, or budgeting.
 
 Duplicate candidates are regenerated transactionally from the current Actual
-snapshot with deterministic keys. They are fuzzy review evidence only and are
-never auto-deleted or labelled confirmed. The public Actual account API does
-not expose reconciled balance/date metadata, so db-sync reports
-`reconciliation_unavailable` instead of fabricating a zero gap. Reconcile in
-Actual during weekly review and month close; real externally produced
-`reconciliation_gap` checks remain trust-gating when present.
+snapshot with deterministic keys containing the exact candidate membership and
+material evidence. They are fuzzy review evidence only, gate headlines until
+reviewed, and are never auto-deleted or labelled confirmed. Membership changes
+create a new unresolved identity.
+
+The normal accounts response omits reconciliation metadata, so db-sync reads
+Actual's authoritative `last_reconciled` field through its supported AQL query.
+Every open account with no date or a date older than 35 days produces a
+deterministic unresolved per-account check. It clears only after Actual reports
+a newer reconciliation date. No balance gap or EUR value is invented; real
+externally produced `reconciliation_gap` checks remain compatible.
+
+Current budgets carry their own projection timestamp and month evidence. Missing
+rows, a month other than the current Actual month, or evidence older than 15
+minutes makes canonical safe-to-spend `NULL`, never a trusted zero.
 
 ## Recurring operations
 

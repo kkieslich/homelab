@@ -109,6 +109,8 @@ services:
       # Internal docker network — bypasses Caddy/TLS/hairpin-NAT.
       ACTUAL_SERVER_URL: http://actual_server:5006
       REFRESH_INTERVAL_SEC: 300
+      # Defines the calendar day passed explicitly to getAccountBalance.
+      ACTUAL_TIMEZONE: Europe/Berlin
     volumes:
       # Read-only fints-status.json + holdings.json so we can populate the
       # pipeline_status and holdings tables.

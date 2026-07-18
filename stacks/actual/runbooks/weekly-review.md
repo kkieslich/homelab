@@ -76,6 +76,10 @@ Use the `[Discretionary] ` prefix for active schedules that reduce this metric,
 and `[Fixed] `, `[Essential] `, `[Sinking fund] `, `[Savings] `, or `[Income] `
 for the other active schedules. An unclassified active schedule, failed schedule fetch, or schedule projection
 older than 15 minutes suppresses the headline rather than overstating it.
+Approximate/range schedule amounts, malformed dates/types, wrong signs, and
+future-skewed source timestamps invalidate the entire schedule projection.
+Likewise, missing/stale/wrong-month budget evidence makes safe-to-spend
+unavailable rather than zero.
 
 Use **Actual — Home** for the trust-first overview, **Actual — Monthly** for
 drivers and category/payee detail, and **Actual — Investments & Pipeline** for
@@ -88,6 +92,9 @@ The weekly review is complete when imports are current, quarantines and
 confirmed duplicates are zero, remaining queue items are understood, schedules
 are current, and active accounts reconcile exactly. The steady-state queue
 target is below 10 only after the live rule migration meets its coverage gate.
+Actual's authoritative reconciliation date must be present and no older than 35
+days for every open account; update it by reconciling in Actual, never by editing
+the replica.
 
 If an import fails, preserve its manifest, stop other writers, run the two
 read-only procedures, and diagnose the source before retrying. If it wrote data,
@@ -101,6 +108,10 @@ source freshness. The guard compares a source/account/window only with durable
 prior non-dry successful manifests. A drop from a prior non-empty success is
 `EMPTY_BATCH_REGRESSION`; a first genuinely empty window is explicit but still
 leaves finance trust closed until non-empty successful coverage exists.
+Coverage is evaluated independently for every enabled Actual account using the
+successful manifest's `requested_to` date and configured cadence. A fresh
+process that fetched an old window, or a shared-source run missing one account,
+does not satisfy trust.
 
 Use [month-close.md](month-close.md) for closed-month reconciliation, funding,
 sinking funds, and immutable snapshots.

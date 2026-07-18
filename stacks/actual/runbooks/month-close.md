@@ -61,7 +61,9 @@ Prefix every active schedule with its explicit canonical marker: `[Fixed] `,
 `[Income] `. Because Actual's public schedule API does not expose a category,
 an active unclassified schedule deliberately fails finance trust.
 Wait for the next db-sync refresh and confirm its schedule evidence is less than
-15 minutes old before using safe-to-spend.
+15 minutes old before using safe-to-spend. Approximate/range amounts or malformed
+dates are unsupported and deliberately close trust. Confirm the current budget
+projection names the current month and is also less than 15 minutes old.
 
 Routine finance policy belongs in Actual. Do not edit repository budget or
 categorization JSON; those files are migration input only until live acceptance
@@ -118,10 +120,12 @@ The review gate selects only review-queue transactions whose transaction month
 equals `--month`; annotations from any other month cannot satisfy it. Net worth
 uses every Actual account, including closed and off-budget accounts, at the
 requested month-end. It derives each historical balance from the current
-authoritative Actual balance minus all projected transactions dated on or after
-the following month. This assumes the projection contains complete transaction
-history through the current balance timestamp; if that assumption is not true,
-do not apply the close.
+authoritative Actual balance explicitly requested at the stored
+`balance_as_of` date, minus projected transactions from the following-month
+boundary through that cutoff. Future-dated transactions after the cutoff are
+never subtracted. The command fails if any account lacks a cutoff covering the
+requested close. This assumes the projection contains complete transaction
+history through that cutoff; if that assumption is not true, do not apply.
 
 ## 6. Acceptance
 

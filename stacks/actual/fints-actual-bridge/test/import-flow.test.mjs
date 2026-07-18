@@ -76,6 +76,8 @@ test('rejects and sanitizes invalid explicit requested range strings', async () 
   }), /validation failed/i);
   assert.equal(calls, 0);
   const [manifest] = await manifestsIn(manifestDir);
+  assert.equal(manifest.source, 'fints-fixture');
+  assert.equal(manifest.accounts[0].actual_account_id, 'actual-account-1');
   assert.deepEqual(manifest.requested_range, { from: null, to: null });
   assert.doesNotMatch(JSON.stringify(manifest), /PIN|IBAN|PRIVATE|PAYEE|1234/i);
 });

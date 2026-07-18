@@ -155,15 +155,32 @@ export async function runImport({
   const recordsByActualId = new Map();
   const perBank = new Map();
   const sources = new Set();
+  const intendedSources = new Set();
+  const intendedAccounts = [];
   let errorCode = null;
   let manifestRange = { from: null, to: null };
 
   try {
+    // Resolve safe ownership context before range validation so even a
+    // pre-import failure can be attributed to the intended expected accounts.
+    const ownership = validateOwnership(registry);
+    for (const bankPayload of bankPayloads(payload)) {
+      const bankKey = String(bankPayload.bank?.key ?? '').trim();
+      for (const sourceAccount of bankPayload.accounts ?? []) {
+        const mapping = accountMapping(config, bankKey, sourceAccount);
+        const owner = mapping && ownership.get(mapping.actual_account_id);
+        if (!owner?.enabled || owner.source !== `fints-${bankKey}`) continue;
+        intendedSources.add(owner.source);
+        intendedAccounts.push({
+          actual_account_id: mapping.actual_account_id,
+          fetched: 0, valid: 0, added: 0, updated: 0, quarantined: 0,
+        });
+      }
+    }
     // Resolve the one manifest range before any Actual API write. A multi-bank
     // payload cannot safely share one range unless every bank window matches.
     manifestRange = requestedRange(payload);
     const priorManifests = await readPriorManifests(manifestDir);
-    const ownership = validateOwnership(registry);
     const banks = bankPayloads(payload);
     if (banks.length === 0) throw new Error('empty payload');
 
@@ -384,10 +401,11 @@ export async function runImport({
   } catch (cause) {
     const manifest = {
       schema_version: 1, run_id: runId,
-      source: sources.size === 1 ? [...sources][0] : 'unknown',
+      source: sources.size === 1 ? [...sources][0]
+        : intendedSources.size === 1 ? [...intendedSources][0] : 'unknown',
       importer_version: IMPORTER_VERSION,
       started_at: startedAt, finished_at: instant(now),
-      requested_range: manifestRange, accounts,
+      requested_range: manifestRange, accounts: accounts.length ? accounts : intendedAccounts,
       outcome: 'failed', error_code: errorCode ?? 'VALIDATION_FAILED',
     };
     await writeRunManifest(join(manifestDir, `${runId}.json`), manifest);

@@ -18,7 +18,7 @@ const CANONICAL = new Set([
   'ordinary_income', 'consumption', 'savings_contributions', 'review_queue',
   'finance_trust', 'holdings', 'holdings_history', 'pipeline_runs',
   'expected_sources', 'data_quality',
-  'safe_to_spend',
+  'safe_to_spend', 'pipeline_run_accounts', 'account_projection', 'budget_projection',
 ]);
 
 function queries(value, found = []) {
@@ -117,6 +117,16 @@ test('safe-to-spend dashboard panels consume the canonical schedule-aware calcul
     assert.match(queries(panelByTitle(home, title)).join('\n'), /safe_to_spend/i);
     assert.match(panelByTitle(home, title).description, /schedule/i);
   }
+});
+
+test('pipeline dashboards expose per-account coverage and authoritative reconciliation evidence', () => {
+  const home = JSON.parse(fs.readFileSync(path.join(DASHBOARDS, 'actual-home.json'), 'utf8'));
+  assert.match(queries(panelByTitle(home, 'Expected source freshness')).join('\n'), /pipeline_run_accounts/i);
+  const pipeline = JSON.parse(fs.readFileSync(path.join(DASHBOARDS, 'actual-investments-pipeline.json'), 'utf8'));
+  const reconciliation = panelByTitle(pipeline, 'Reconciliation evidence');
+  const sql = queries(reconciliation).join('\n');
+  assert.match(sql, /account_id|account/i);
+  assert.doesNotMatch(sql, /reconciliation_unavailable/i);
 });
 
 test('every dashboard query prepares against the canonical projection schema', () => {
