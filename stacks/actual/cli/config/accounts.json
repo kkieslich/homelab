@@ -15,8 +15,7 @@
     "source": "manual-actual",
     "source_account": "fnz-bank-depot",
     "role": "investment",
-    "enabled": true,
-    "expected_cadence_seconds": 604800,
+    "enabled": false,
     "interactive_auth": false
   },
   {
@@ -25,8 +24,7 @@
     "source": "manual-actual",
     "source_account": "triodos-giro",
     "role": "on_budget_cash",
-    "enabled": true,
-    "expected_cadence_seconds": 604800,
+    "enabled": false,
     "interactive_auth": false
   },
   {
@@ -35,8 +33,7 @@
     "source": "manual-actual",
     "source_account": "triodos-mastercard",
     "role": "credit_card",
-    "enabled": true,
-    "expected_cadence_seconds": 604800,
+    "enabled": false,
     "interactive_auth": false
   },
   {

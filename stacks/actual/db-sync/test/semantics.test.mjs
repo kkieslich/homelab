@@ -134,10 +134,13 @@ test('routine sync replaces current budget state without touching immutable mont
     accounts: [{ actual_account_id: 'checking', fetched: 2, valid: 2, added: 1, updated: 1, quarantined: 0 }],
   }));
   const registryPath = path.join(dir, 'accounts.json');
-  fs.writeFileSync(registryPath, JSON.stringify([{
-    actual_account_id: 'checking', source: 'fints-bank', enabled: true,
-    expected_cadence_seconds: 86400,
-  }]));
+  fs.writeFileSync(registryPath, JSON.stringify([
+    {
+      actual_account_id: 'checking', source: 'fints-bank', enabled: true,
+      expected_cadence_seconds: 86400,
+    },
+    { actual_account_id: 'legacy', source: 'manual-actual', enabled: false },
+  ]));
   const snapshot = {
     accounts: [{ id: 'checking', name: 'Checking', offbudget: false, closed: false }],
     categoryGroups: [{ id: 'essential', name: 'Flexible essentials', hidden: false }],
@@ -156,9 +159,17 @@ test('routine sync replaces current budget state without touching immutable mont
   seed.prepare(`INSERT INTO net_worth_snapshots VALUES
     ('2026-06','2026-06-30T23:59:00Z','old',999)`).run();
   seed.close();
-  await syncToSqlite(dbPath, null, null, manifests, registryPath, {
-    snapshot, now: new Date('2026-07-31T23:59:00Z'),
-  });
+  const chmodSync = fs.chmodSync;
+  fs.chmodSync = () => { throw new Error('synthetic permission failure'); };
+  let counts;
+  try {
+    counts = await syncToSqlite(dbPath, null, null, manifests, registryPath, {
+      snapshot, now: new Date('2026-07-31T23:59:00Z'),
+    });
+  } finally {
+    fs.chmodSync = chmodSync;
+  }
+  assert.equal(counts.budgets, 1);
   const db = new Database(dbPath, { readonly: true });
   assert.deepEqual(db.prepare('SELECT budgeted_cents,spent_cents,balance_cents,carried_cents FROM current_budgets').get(),
     { budgeted_cents: 40000, spent_cents: -12300, balance_cents: 28200, carried_cents: 500 });
@@ -166,6 +177,7 @@ test('routine sync replaces current budget state without touching immutable mont
     { fetched: 2, valid: 2, added: 1, updated: 1, quarantined: 0 });
   assert.deepEqual(db.prepare('SELECT * FROM expected_sources').get(),
     { source: 'fints-bank', expected_cadence_seconds: 86400 });
+  assert.equal(db.prepare("SELECT COUNT(*) FROM expected_sources WHERE source='manual-actual'").pluck().get(), 0);
   assert.equal(db.prepare('SELECT COUNT(*) FROM budget_snapshots').pluck().get(), 1);
   assert.equal(db.prepare('SELECT COUNT(*) FROM net_worth_snapshots').pluck().get(), 1);
   db.close();

@@ -61,3 +61,10 @@ All three review findings were addressed test-first.
 - `git diff --check`: passed.
 - `docker compose config --quiet`: passed.
 - Full neighboring regression suites: Actual CLI 9/9, FinTS bridge 28/28, db-sync 6/6.
+
+## Final review remediation
+
+1. RED: an injected post-commit `chmodSync` failure rejected an otherwise committed refresh. GREEN: permission normalization is best-effort, emits a sanitized warning, and returns the committed counts; the test also reads the resulting current projection.
+2. RED: the production registry test showed the three legacy account IDs were incorrectly enabled. GREEN: FNZ Bank Depot and both Triodos accounts are disabled again, carry no cadence, and a db-sync fixture proves a disabled-only `manual-actual` source is absent from `expected_sources`.
+
+No synthetic run producer was added for legacy/manual accounts.

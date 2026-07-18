@@ -309,6 +309,10 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
     db.close();
   }
   // Make sure Grafana (UID 472) can read regardless of who wrote the file.
-  fs.chmodSync(dbPath, 0o644);
+  try {
+    fs.chmodSync(dbPath, 0o644);
+  } catch (error) {
+    console.error(`[sync] warning: could not normalize SQLite permissions (${error?.code ?? 'unknown'})`);
+  }
   return counts;
 }
