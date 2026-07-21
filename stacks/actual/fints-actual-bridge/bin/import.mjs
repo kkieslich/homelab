@@ -364,7 +364,10 @@ export async function runImport({
               cleared: true,
             };
             if (prior) {
-              await actualApi.updateTransaction(prior.id, record);
+              // payee_name is an import-only convenience field; updateTransaction
+              // accepts only real transactions-table fields.
+              const { payee_name: _importOnly, ...updateFields } = record;
+              await actualApi.updateTransaction(prior.id, updateFields);
               job.summary.updated = 1;
             } else {
               const result = await actualApi.importTransactions(job.mapping.actual_account_id, [record], { reimportDeleted: false });

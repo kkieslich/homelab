@@ -412,6 +412,33 @@ test('depot revaluation is non-destructive and idempotent across sequential cycl
   assert.equal(calls.filter(([kind]) => kind === 'update').length, 1);
 });
 
+test('depot revaluation update sends only transactions-table fields', async () => {
+  const setup = depotSetup();
+  // Mirror @actual-app/api convertForUpdate: payee_name is an import-only
+  // convenience field and does not exist on the transactions table.
+  const updatable = new Set(['date', 'amount', 'payee', 'category', 'notes', 'imported_id', 'imported_payee', 'cleared']);
+  const updates = [];
+  const actualApi = {
+    async getTransactions() { return [{ id: 'valuation', imported_id: 'fints-bridge-depot-revaluation-depot-1', amount: 9000 }]; },
+    async updateTransaction(id, fields) {
+      for (const field of Object.keys(fields)) {
+        if (!updatable.has(field)) throw new Error(`Field "${field}" does not exist on table transactions`);
+      }
+      updates.push([id, structuredClone(fields)]);
+      return [];
+    },
+    async importTransactions() { throw new Error('must update the existing valuation'); },
+  };
+  await runImport({
+    ...setup, actualApi, manifestDir: await mkdtemp(join(tmpdir(), 'import-flow-')),
+    now: () => new Date('2026-07-18T10:00:00Z'),
+  });
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0][0], 'valuation');
+  assert.equal(updates[0][1].amount, 15000);
+  assert.equal(updates[0][1].imported_payee, 'Holdings revaluation');
+});
+
 test('failed depot update retains the previous valid valuation and never deletes it', async () => {
   const setup = depotSetup();
   const transactions = [
