@@ -497,7 +497,7 @@ test('reconciles one legacy transaction to its canonical ID before importing', a
   const actualApi = {
     async getTransactions() { return [{
       id: 'legacy-1', imported_id: transaction.imported_id, date: transaction.date,
-      amount: transaction.amount_cents, imported_payee: transaction.notes, notes: transaction.notes,
+      amount: transaction.amount_cents, imported_payee: transaction.payee_name, notes: transaction.notes,
     }]; },
     async updateTransaction(id, fields) { calls.push(['update', id, fields]); },
     async importTransactions(account, records, options) { calls.push(['import', account, records, options]); return { added: [], updated: ['legacy-1'] }; },
@@ -512,7 +512,7 @@ test('ambiguous legacy reconciliation fails closed with quarantine and zero writ
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   const legacy = {
     imported_id: transaction.imported_id, date: transaction.date,
-    amount: transaction.amount_cents, imported_payee: transaction.notes, notes: transaction.notes,
+    amount: transaction.amount_cents, imported_payee: transaction.payee_name, notes: transaction.notes,
   };
   const writes = [];
   await assert.rejects(() => runImport({
@@ -775,7 +775,7 @@ test('later-account legacy ambiguity prevents earlier-account migration globally
         const source = account === 'first-account' ? firstTx : secondTx;
         const base = {
           imported_id: source.imported_id, date: source.date, amount: source.amount_cents,
-          imported_payee: source.notes, notes: source.notes,
+          imported_payee: source.payee_name, notes: source.notes,
         };
         return account === 'first-account'
           ? [{ id: 'first-legacy', ...base }]

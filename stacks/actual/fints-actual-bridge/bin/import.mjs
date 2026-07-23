@@ -98,10 +98,10 @@ function normalized(value) {
 }
 
 function sameImportedContent(existing, record) {
-  return existing.date === record.date
-    && existing.amount === record.amount
-    && normalized(existing.imported_payee ?? existing.notes ?? existing.payee_name)
-      === normalized(record.imported_payee ?? record.notes ?? record.payee_name);
+  if (existing.date !== record.date || existing.amount !== record.amount) return false;
+  const legacyIdentity = normalized(existing.imported_payee ?? existing.notes ?? existing.payee_name);
+  return [record.imported_payee, record.notes, record.payee_name]
+    .map(normalized).includes(legacyIdentity);
 }
 
 function legacyAliases({ source, sourceAccount, transaction }) {
