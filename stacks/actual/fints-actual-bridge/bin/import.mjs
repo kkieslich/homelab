@@ -18,6 +18,10 @@ import { normalizeText as normalized, isIsoDay } from '../src/importer/text.mjs'
 
 const IMPORTER_VERSION = '0.1.0';
 
+// Only codes this importer sets itself may reach a manifest's error_code.
+// Foreign codes (e.g. Node fs EACCES/ENOSPC) must not leak into the contract.
+const IMPORT_ERROR_CODES = new Set(['ACTUAL_IMPORT_FAILED', 'EMPTY_BATCH_REGRESSION', 'INVALID_TIMEZONE']);
+
 function coded(code, message, cause) {
   const error = new Error(message, { cause });
   error.code = code;
@@ -418,7 +422,7 @@ export async function runImport({
     await pruneRunManifests(manifestDir, { now: typeof now === 'function' ? now() : now });
     return manifest;
   } catch (cause) {
-    const code = cause?.code ?? null;
+    const code = IMPORT_ERROR_CODES.has(cause?.code) ? cause.code : null;
     const manifest = {
       schema_version: 1, run_id: runId,
       source: sources.size === 1 ? [...sources][0]

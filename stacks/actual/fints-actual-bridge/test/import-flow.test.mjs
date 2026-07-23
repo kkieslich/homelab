@@ -284,6 +284,22 @@ test('API errors are reduced to a controlled error code', async () => {
   assert.doesNotMatch(JSON.stringify(manifest), /PRIVATE|request body/i);
 });
 
+test('foreign error codes never leak into the manifest error_code contract', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  await assert.rejects(() => runImport({
+    payload, config, registry,
+    actualApi: {
+      async getTransactions() { throw Object.assign(new Error('boom'), { code: 'EACCES' }); },
+      async importTransactions() { return {}; },
+    },
+    manifestDir, dryRun: false,
+    now: () => new Date('2026-07-18T10:00:00.000Z'),
+  }), /^Error: Import validation failed$/);
+  const [manifest] = await manifestsIn(manifestDir);
+  assert.equal(manifest.outcome, 'failed');
+  assert.equal(manifest.error_code, 'VALIDATION_FAILED');
+});
+
 test('dry run validates and records counts without calling Actual', async () => {
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   let calls = 0;
