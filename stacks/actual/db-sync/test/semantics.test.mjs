@@ -284,6 +284,46 @@ test('sync preserves a manually resolved pipeline run across subsequent cycles',
   db.close();
 });
 
+test('sync does not re-insert a run whose run_id is already in pipeline_runs', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'actual-known-run-'));
+  const manifests = path.join(dir, 'runs');
+  fs.mkdirSync(manifests);
+  fs.writeFileSync(path.join(manifests, 'run.json'), JSON.stringify({
+    schema_version: 1, run_id: 'known-run', source: 'fints-bank', importer_version: '2',
+    started_at: '2026-07-18T09:00:00Z', finished_at: '2026-07-18T09:01:00Z',
+    requested_range: { from: '2026-07-01', to: '2026-07-18' }, outcome: 'success', error_code: null,
+    accounts: [{ actual_account_id: 'checking', fetched: 2, valid: 2, added: 1, updated: 1, quarantined: 0 }],
+  }));
+  const registryPath = path.join(dir, 'accounts.json');
+  fs.writeFileSync(registryPath, JSON.stringify([
+    { actual_account_id: 'checking', source: 'fints-bank', enabled: true, expected_cadence_seconds: 86400 },
+  ]));
+  const snapshot = {
+    accounts: [{ id: 'checking', name: 'Checking', offbudget: false, closed: false }],
+    categoryGroups: [], categories: [], payees: [], transactions: [], balances: { checking: 0 },
+    budgetMonths: [],
+  };
+  const dbPath = path.join(dir, 'actual.sqlite');
+  await syncToSqlite(dbPath, null, null, manifests, registryPath, { snapshot, now: new Date('2026-07-18T10:00:00Z') });
+
+  let db = new Database(dbPath);
+  assert.equal(db.prepare('SELECT outcome FROM pipeline_runs WHERE run_id=?').pluck().get('known-run'), 'success');
+  // Simulate an operator annotation / manual edit on the already-ingested row.
+  db.prepare("UPDATE pipeline_runs SET outcome='operator_annotated' WHERE run_id=?").run('known-run');
+  db.close();
+
+  // Re-sync against the exact same manifest directory/file. Because
+  // 'known-run' is already in pipeline_runs, its manifest must be skipped
+  // entirely rather than re-parsed and INSERT OR REPLACEd — so the mutation
+  // above must survive.
+  await syncToSqlite(dbPath, null, null, manifests, registryPath, { snapshot, now: new Date('2026-07-18T10:05:00Z') });
+
+  db = new Database(dbPath, { readonly: true });
+  assert.equal(db.prepare('SELECT outcome FROM pipeline_runs WHERE run_id=?').pluck().get('known-run'), 'operator_annotated');
+  assert.equal(db.prepare('SELECT COUNT(*) FROM pipeline_runs WHERE run_id=?').pluck().get('known-run'), 1);
+  db.close();
+});
+
 test('finance trust rejects expected sources with no run or no cadence', () => {
   const db = projection();
   db.prepare('INSERT INTO expected_sources VALUES (?, ?, ?)').run('checking', 'weekly-manual', 604800);

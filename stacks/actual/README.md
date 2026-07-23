@@ -47,6 +47,13 @@ batches, calls Actual with `reimportDeleted: false`, and writes privacy-safe run
 manifests under the FinTS state volume. Fuzzy duplicate candidates are reported,
 never automatically deleted or merged.
 
+Manifests are transport with 90-day retention; run history lives in the
+projection DB. The importer prunes manifest files older than 90 days after
+each successful write, and `actual_db_sync` skips manifests whose `run_id` is
+already recorded in `pipeline_runs` rather than re-parsing and re-inserting
+them — the `pipeline_runs`/`pipeline_run_accounts` tables are never dropped,
+so they remain the durable long-term record after their source files age out.
+
 Current `banks[]` fetch/daemon payloads must provide a complete valid window on
 every bank, with identical windows when several banks share one manifest. A
 complete explicit top-level range may intentionally apply to all banks; a

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import * as api from '@actual-app/api';
 import Database from 'better-sqlite3';
 import { detectSubscriptions } from '../../cli/src/commands/subs.mjs';
+import { readRunManifests } from '../../fints-actual-bridge/src/importer/manifest.mjs';
 import { isIsoDay, normalizeText } from '../../fints-actual-bridge/src/importer/text.mjs';
 import { deriveCategoryRole, validateCategoryGroups } from './semantics.mjs';
 
@@ -62,19 +63,6 @@ async function readJsonIfExists(p) {
     if (err?.code === 'ENOENT') return null;
     throw err;
   }
-}
-
-async function readManifests(directory) {
-  if (!directory) return [];
-  let names;
-  try { names = await fsp.readdir(directory); }
-  catch (error) { if (error?.code === 'ENOENT') return []; throw error; }
-  const manifests = [];
-  for (const name of names.filter((name) => name.endsWith('.json')).sort()) {
-    const value = await readJsonIfExists(path.join(directory, name));
-    if (value?.schema_version === 1 && value.run_id && value.source && value.finished_at) manifests.push(value);
-  }
-  return manifests;
 }
 
 async function readExpectedSources(registryPath, supplied) {
@@ -181,7 +169,6 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
   const effectiveManifestDir = manifestDir?.endsWith('.json')
     ? path.join(path.dirname(fintsStatusPath), 'import-runs')
     : manifestDir;
-  const manifests = await readManifests(effectiveManifestDir);
   const expectedSources = await readExpectedSources(registryPath, options.expectedSources);
 
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -274,6 +261,14 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
   const priorRunResolutions = new Map(db.prepare(
     'SELECT run_id,resolved FROM pipeline_runs WHERE resolved=1',
   ).all().map((row) => [row.run_id, row.resolved]));
+  // Already-ingested runs are durable in pipeline_runs (the table is never
+  // dropped below), so their manifest files don't need to be re-read/parsed
+  // every cycle — manifests are transport with 90-day retention; run history
+  // lives on in this projection DB.
+  const knownRunIds = new Set(db.prepare('SELECT run_id FROM pipeline_runs').pluck().all());
+  const manifests = effectiveManifestDir
+    ? await readRunManifests(effectiveManifestDir, { skipRunIds: knownRunIds })
+    : [];
 
   {
     // holdings_history is intentionally NOT deleted — it's append-only.

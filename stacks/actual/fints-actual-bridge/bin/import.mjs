@@ -11,7 +11,7 @@ import * as actual from '@actual-app/api';
 import * as toml from 'smol-toml';
 
 import { canonicalImportedId, isWeakSourceReference, toActualTransaction } from '../src/importer/canonical.mjs';
-import { writeRunManifest } from '../src/importer/manifest.mjs';
+import { pruneRunManifests, readRunManifests, writeRunManifest } from '../src/importer/manifest.mjs';
 import { validateOwnership } from '../src/importer/registry.mjs';
 import { validateBatch } from '../src/importer/validate.mjs';
 import { normalizeText as normalized, isIsoDay } from '../src/importer/text.mjs';
@@ -122,21 +122,6 @@ function planLegacyMigrations(existing, batch) {
   return { migrations, ambiguous: 0 };
 }
 
-async function readPriorManifests(directory) {
-  try {
-    const names = await fs.readdir(directory);
-    const values = [];
-    for (const name of names.filter((value) => value.endsWith('.json'))) {
-      try { values.push(JSON.parse(await fs.readFile(join(directory, name), 'utf8'))); }
-      catch { /* An incomplete/corrupt file is never evidence for an empty batch. */ }
-    }
-    return values;
-  } catch (error) {
-    if (error?.code === 'ENOENT') return [];
-    throw error;
-  }
-}
-
 function priorBatchEvidence(manifests, source, accountId, range) {
   const sameWindow = (manifest) => manifest.source === source
     && manifest.requested_range?.from === range.from
@@ -191,7 +176,7 @@ export async function runImport({
     // Resolve the one manifest range before any Actual API write. A multi-bank
     // payload cannot safely share one range unless every bank window matches.
     manifestRange = requestedRange(payload, financeDay(startedAt, financeTimeZone));
-    const priorManifests = await readPriorManifests(manifestDir);
+    const priorManifests = await readRunManifests(manifestDir);
     const banks = bankPayloads(payload);
     if (banks.length === 0) throw new Error('empty payload');
 
@@ -427,6 +412,7 @@ export async function runImport({
       outcome: dryRun ? 'dry_run' : allAccountsEmpty ? 'empty' : anyAccountEmpty ? 'partial_empty' : 'success', error_code: null,
     };
     await writeRunManifest(join(manifestDir, `${runId}.json`), manifest);
+    await pruneRunManifests(manifestDir, { now: typeof now === 'function' ? now() : now });
     return manifest;
   } catch (cause) {
     const manifest = {
