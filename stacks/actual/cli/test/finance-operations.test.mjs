@@ -65,6 +65,24 @@ test('finance health reports account-grain attempts, coverage, gates, and trust 
   assert.equal(fs.statSync(dbPath).mtimeMs, before);
 });
 
+test('a fresh validated empty latest attempt is current coverage, not an error status', async () => {
+  const { dbPath, now, today } = await fixture();
+  const laterIso = new Date(now.getTime() + 1000).toISOString();
+  const db = new Database(dbPath);
+  db.prepare(`INSERT INTO pipeline_runs (run_id,source,finished_at,requested_from,requested_to,quarantined,outcome,resolved)
+    VALUES ('quiet','bank',?,?,?,0,'partial_empty',1)`).run(laterIso, relativeDay(-17, now), today);
+  db.prepare(`INSERT INTO pipeline_run_accounts (run_id,account_id,source,requested_from,requested_to,outcome,quarantined)
+    VALUES ('quiet','a','bank',?,?,'empty',0)`).run(relativeDay(-17, now), today);
+  db.close();
+  const report = financeHealth({ dbPath, now });
+  assert.equal(report.accounts[0].latest_attempt.run_id, 'quiet');
+  assert.equal(report.accounts[0].latest_attempt.outcome, 'empty');
+  assert.equal(report.accounts[0].latest_valid_success.run_id, 'quiet');
+  assert.equal(report.accounts[0].latest_valid_success.outcome, 'empty');
+  assert.equal(report.accounts[0].latest_valid_success.requested_to, today);
+  assert.equal(report.accounts[0].status, 'current');
+});
+
 test('duplicate resolution is dry-run by default, transactional, idempotent, and rejects stale evidence', async () => {
   const { dbPath } = await fixture();
   const input = { dbPath, candidateKey: 'duplicate_candidate:key', resolution: 'intentional_repeat',
