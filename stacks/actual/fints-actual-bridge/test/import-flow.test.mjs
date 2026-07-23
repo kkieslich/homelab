@@ -60,7 +60,7 @@ test('imports a validated canonical batch with deleted-record protection', async
   assert.equal(manifest.outcome, 'success');
   assert.deepEqual(manifest.accounts, [{
     actual_account_id: 'actual-account-1', fetched: 1, valid: 1,
-    added: 1, updated: 0, quarantined: 0, duplicate_candidates: 0, outcome: 'success',
+    added: 1, updated: 0, quarantined: 0, pending_excluded: 0, duplicate_candidates: 0, outcome: 'success',
   }]);
 });
 
@@ -566,7 +566,7 @@ test('nine reused references import once and a repeated fetch performs no duplic
   assert.equal(added, 9);
 });
 
-test('pending weak reference is quarantined without writes and booked lifecycle imports once', async () => {
+test('pending weak reference is excluded (not quarantined) without writes and booked lifecycle imports once', async () => {
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   const weak = {
     ...transaction, imported_id: 'STARTUMS', status: 'PDNG',
@@ -588,7 +588,8 @@ test('pending weak reference is quarantined without writes and booked lifecycle 
   };
   const pendingManifest = await runImport({ lifecyclePayload, payload: lifecyclePayload, config, registry, actualApi, manifestDir });
   assert.equal(pendingManifest.accounts[0].fetched, 1);
-  assert.equal(pendingManifest.accounts[0].quarantined, 1);
+  assert.equal(pendingManifest.accounts[0].quarantined, 0);
+  assert.equal(pendingManifest.accounts[0].pending_excluded, 1);
   assert.equal(pendingManifest.accounts[0].valid, 0);
   assert.deepEqual(writes, []);
 
@@ -604,6 +605,25 @@ test('pending weak reference is quarantined without writes and booked lifecycle 
   }
   assert.equal(stored.length, 1);
   assert.equal(writes.length, 2);
+});
+
+test('pending NONREF transaction is reported as pending_excluded, not quarantined, and is not imported', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const pendingPayload = structuredClone(payload);
+  pendingPayload.accounts[0].transactions = [{
+    ...transaction, imported_id: 'NONREF', status: 'PDNG',
+  }];
+  const writes = [];
+  const actualApi = {
+    async getTransactions() { return []; },
+    async importTransactions(...args) { writes.push(args); return { added: [], updated: [] }; },
+  };
+  const manifest = await runImport({ payload: pendingPayload, config, registry, actualApi, manifestDir });
+  assert.equal(manifest.accounts[0].fetched, 1);
+  assert.equal(manifest.accounts[0].valid, 0);
+  assert.equal(manifest.accounts[0].quarantined, 0);
+  assert.equal(manifest.accounts[0].pending_excluded, 1);
+  assert.deepEqual(writes, []);
 });
 
 test('indistinguishable booked weak-reference rows fail closed with zero writes', async () => {

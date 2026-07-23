@@ -85,9 +85,10 @@ Re-runs are idempotent. A strong bank reference is namespaced by source and
 account and remains the primary identity across pending-to-booked metadata
 changes. Known weak placeholders such as `STARTUMS`, plus fetcher-generated
 `syn_…` fallback IDs, are not trusted as unique:
-pending weak-reference rows are quarantined until booked, then qualified using
-booked-stable date, amount, currency, payee, and purpose fields. Distinct booked
-transactions remain distinct while a repeated fetch produces the same IDs.
+pending weak-reference rows are excluded from import until booked, then
+qualified using booked-stable date, amount, currency, payee, and purpose
+fields. Distinct booked transactions remain distinct while a repeated fetch
+produces the same IDs.
 
 ## Step 3 — import into Actual via the Node sidecar
 
@@ -138,8 +139,10 @@ The importer:
 - Skips any IBAN not listed (or still set to `REPLACE-...`).
 - Maps each fetched transaction into Actual's `importTransactions` shape (cents already signed, `imported_id` for dedup, `cleared = (status === 'BOOK')`).
 - Holds pending transactions carrying known weak/reused placeholder references
-  out of Actual until the bank reports them booked; the manifest counts them as
-  quarantined rather than inventing a lifecycle identity.
+  out of Actual until the bank reports them booked, rather than inventing a
+  lifecycle identity. Pending weak-reference transactions (typical for card
+  pre-bookings) are excluded from import until they book — they are reported
+  per-run as `pending_excluded` and do not gate trust.
 - Before its first canonical write, reads the account history and migrates an
   exact, unique legacy-ID/content match in place. Ambiguous legacy matches are
   quarantined and abort the whole run before any write; deleted transactions

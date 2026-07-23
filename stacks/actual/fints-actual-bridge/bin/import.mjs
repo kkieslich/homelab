@@ -269,7 +269,8 @@ export async function runImport({
           valid: 0,
           added: 0,
           updated: 0,
-          quarantined: pendingWeak.length,
+          quarantined: 0,
+          pending_excluded: pendingWeak.length,
         };
         accounts.push(summary);
         const evidence = priorBatchEvidence(priorManifests, owner.source, mapping.actual_account_id, manifestRange);

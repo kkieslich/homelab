@@ -20,8 +20,10 @@ export function financeHealth({ dbPath, now = new Date() }) {
       WHERE a.account_id=? AND a.source=? AND a.outcome IN ('success','empty') AND strftime('%s',p.finished_at) IS NOT NULL
         AND CAST(strftime('%s',p.finished_at) AS INTEGER)<=?+300
       ORDER BY a.requested_to DESC,p.finished_at DESC,a.run_id DESC LIMIT 1`);
+    let pendingExcluded = 0;
     const accounts = expected.map((row) => {
       const latestAttempt = attempt.get(row.account_id, row.source) ?? null;
+      pendingExcluded += Number(latestAttempt?.pending_excluded) || 0;
       const latestSuccess = success.get(row.account_id, row.source, nowSeconds) ?? null;
       const finishedSeconds = latestSuccess ? Math.floor(new Date(latestSuccess.finished_at).getTime() / 1000) : null;
       const future = latestAttempt && new Date(latestAttempt.finished_at).getTime() > now.getTime() + 300000;
@@ -59,6 +61,10 @@ export function financeHealth({ dbPath, now = new Date() }) {
         quarantine: db.prepare(`SELECT p.run_id,a.account_id,a.source,a.quarantined FROM pipeline_run_accounts a
           JOIN pipeline_runs p ON p.run_id=a.run_id JOIN expected_sources e ON e.account_id=a.account_id AND e.source=a.source
           WHERE a.quarantined>0 AND p.resolved=0 ORDER BY p.run_id,a.account_id`).all(),
+        // Pending (non-BOOK) weak-reference transactions are deliberately excluded
+        // from import, not withheld — informational only, summed over each
+        // expected account's latest pipeline run (same latest-attempt row used above).
+        pending_excluded: pendingExcluded,
         budget_projection: db.prepare('SELECT * FROM budget_projection ORDER BY fetched_at DESC LIMIT 1').get() ?? null,
         schedule_projection: db.prepare('SELECT * FROM schedule_projection ORDER BY fetched_at DESC LIMIT 1').get() ?? null,
       },

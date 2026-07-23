@@ -103,6 +103,10 @@ function ensureSchemaMigrations(db) {
   }
   const expected = db.prepare("SELECT name FROM pragma_table_info('expected_sources')").pluck().all();
   if (expected.length > 0 && !expected.includes('account_id')) db.exec('DROP TABLE expected_sources');
+  const runAccounts = db.prepare("SELECT name FROM pragma_table_info('pipeline_run_accounts')").pluck().all();
+  if (runAccounts.length > 0 && !runAccounts.includes('pending_excluded')) {
+    db.exec('ALTER TABLE pipeline_run_accounts ADD COLUMN pending_excluded INTEGER NOT NULL DEFAULT 0');
+  }
   const annotations = db.prepare("SELECT name FROM pragma_table_info('review_queue_annotations')").pluck().all();
   // SQLite cannot add CHECK constraints with ALTER TABLE. Existing replicas get
   // the reviewer column safely; all writes still pass strict CLI validation.
@@ -257,7 +261,7 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const insertRunAccount = db.prepare(`INSERT OR REPLACE INTO pipeline_run_accounts
     (run_id,account_id,source,requested_from,requested_to,outcome,
-     fetched,valid,added,updated,quarantined) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+     fetched,valid,added,updated,quarantined,pending_excluded) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
   const insertAccountProjection = db.prepare(`INSERT INTO account_projection
     (account_id,balance_as_of,last_reconciled,checked_at) VALUES (?,?,?,?)`);
   const insertBudgetProjection = db.prepare(`INSERT INTO budget_projection
@@ -475,7 +479,7 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         insertRunAccount.run(manifest.run_id, account.actual_account_id, source,
           manifest.requested_range?.from ?? null, manifest.requested_range?.to ?? null,
           account.outcome ?? manifest.outcome, account.fetched ?? null, account.valid ?? null, account.added ?? null,
-          account.updated ?? null, account.quarantined ?? 0);
+          account.updated ?? null, account.quarantined ?? 0, account.pending_excluded ?? 0);
       }
     }
   }

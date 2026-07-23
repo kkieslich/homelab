@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS pipeline_run_accounts (
   added           INTEGER,
   updated         INTEGER,
   quarantined     INTEGER NOT NULL DEFAULT 0,
+  pending_excluded INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (run_id, account_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pipeline_account_coverage
