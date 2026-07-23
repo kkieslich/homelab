@@ -23,7 +23,7 @@ test('Baader runs as an interactive persistent daemon with guarded imports', asy
   assert.equal(daemon.container_name, 'fints_daemon_baader');
   assert.equal(daemon.stdin_open, true);
   assert.equal(daemon.tty, true);
-  assert.equal(daemon.restart, 'unless-stopped');
+  assert.equal(daemon.restart, 'on-failure:3');
   assert.deepEqual(daemon.profiles ?? [], []);
 
   const command = Array.isArray(daemon.command)
