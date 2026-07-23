@@ -116,6 +116,17 @@ test('weak booked identity ignores non-stable value and servicer metadata', () =
   assert.equal(first.imported_id, refetched.imported_id);
 });
 
+test('two genuinely identical weak-reference transactions fingerprint to the same canonical ID (collision by design; disambiguation is import.mjs\'s job)', () => {
+  const transactionA = {
+    date: '2026-07-08', amount_cents: -250, imported_id: 'NONREF',
+    payee_name: 'Ticket Kiosk', notes: 'Ticket Kiosk', currency: 'EUR', status: 'BOOK',
+  };
+  const transactionB = structuredClone(transactionA);
+  const first = toActualTransaction({ source: 'fints-baader', sourceAccount: 'cash', transaction: transactionA });
+  const second = toActualTransaction({ source: 'fints-baader', sourceAccount: 'cash', transaction: transactionB });
+  assert.equal(first.imported_id, second.imported_id);
+});
+
 test('synthetic fetch fallback references are weak lifecycle identities', () => {
   assert.equal(isWeakSourceReference('syn_0123456789abcdef01234567'), true);
   assert.equal(isWeakSourceReference('SYN_ABCDEF0123456789ABCDEF01'), true);

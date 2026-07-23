@@ -626,14 +626,71 @@ test('pending NONREF transaction is reported as pending_excluded, not quarantine
   assert.deepEqual(writes, []);
 });
 
-test('indistinguishable booked weak-reference rows fail closed with zero writes', async () => {
-  const ambiguousPayload = structuredClone(payload);
+test('identical booked weak-reference rows are disambiguated and both import successfully', async () => {
+  const duplicatePayload = structuredClone(payload);
   const weak = { ...transaction, imported_id: 'STARTUMS', status: 'BOOK' };
-  ambiguousPayload.accounts[0].transactions = [weak, structuredClone(weak)];
+  duplicatePayload.accounts[0].transactions = [weak, structuredClone(weak)];
+  let importedRecords;
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const manifest = await runImport({
+    payload: duplicatePayload, config, registry, manifestDir,
+    actualApi: {
+      async getTransactions() { return []; },
+      async importTransactions(_account, records) {
+        importedRecords = records;
+        return { added: records.map((record) => record.imported_id), updated: [] };
+      },
+    },
+  });
+  assert.equal(manifest.outcome, 'success');
+  assert.equal(manifest.accounts[0].valid, 2);
+  assert.equal(manifest.accounts[0].added, 2);
+  const ids = importedRecords.map((record) => record.imported_id);
+  assert.equal(new Set(ids).size, 2);
+  assert.equal(ids[1], `${ids[0]}~2`);
+});
+
+test('re-running an identical duplicate weak-reference payload assigns the same ids idempotently', async () => {
+  const duplicatePayload = structuredClone(payload);
+  const weak = { ...transaction, imported_id: 'STARTUMS', status: 'BOOK' };
+  duplicatePayload.accounts[0].transactions = [weak, structuredClone(weak)];
+  const store = new Map();
+  const actualApi = {
+    async getTransactions() { return [...store.values()]; },
+    async importTransactions(_account, records) {
+      const added = [];
+      const updated = [];
+      for (const record of records) {
+        if (store.has(record.imported_id)) updated.push(record.imported_id);
+        else added.push(record.imported_id);
+        store.set(record.imported_id, { id: record.imported_id, ...record });
+      }
+      return { added, updated };
+    },
+  };
+  const first = await runImport({
+    payload: structuredClone(duplicatePayload), config, registry, actualApi,
+    manifestDir: await mkdtemp(join(tmpdir(), 'import-flow-')),
+  });
+  assert.equal(first.accounts[0].added, 2);
+  assert.equal(first.accounts[0].updated, 0);
+
+  const second = await runImport({
+    payload: structuredClone(duplicatePayload), config, registry, actualApi,
+    manifestDir: await mkdtemp(join(tmpdir(), 'import-flow-')),
+  });
+  assert.equal(second.accounts[0].added, 0);
+  assert.equal(second.accounts[0].updated, 2);
+});
+
+test('duplicate strong bank references are never suffixed and still fail closed with zero writes', async () => {
+  const duplicatePayload = structuredClone(payload);
+  const strong = { ...transaction, imported_id: 'REAL-BANK-REF-1', status: 'BOOK' };
+  duplicatePayload.accounts[0].transactions = [strong, structuredClone(strong)];
   const writes = [];
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   await assert.rejects(() => runImport({
-    payload: ambiguousPayload, config, registry, manifestDir,
+    payload: duplicatePayload, config, registry, manifestDir,
     actualApi: {
       async getTransactions() { return []; },
       async importTransactions(...args) { writes.push(args); },

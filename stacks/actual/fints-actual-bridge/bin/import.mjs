@@ -263,6 +263,16 @@ export async function runImport({
         }));
         const records = items.map(({ record }) => record);
         if (transactions.length > rawTransactions.length) records[0].imported_payee = 'Opening Balance';
+        // Two indistinguishable weak-reference transactions fingerprint to the
+        // same canonical ID; suffix later occurrences. Multiset-stable across
+        // fetches because members of an identical group are interchangeable.
+        const weakOccurrences = new Map();
+        for (const item of items) {
+          if (!isWeakSourceReference(item.transaction.imported_id)) continue;
+          const count = (weakOccurrences.get(item.record.imported_id) ?? 0) + 1;
+          weakOccurrences.set(item.record.imported_id, count);
+          if (count > 1) item.record.imported_id = `${item.record.imported_id}~${count}`;
+        }
         const summary = {
           actual_account_id: mapping.actual_account_id,
           fetched: rawTransactions.length,
