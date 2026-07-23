@@ -125,6 +125,18 @@ function validIsoDay(value) {
   return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
 }
 
+export function reconciledDay(value, timeZone = process.env.ACTUAL_TIMEZONE ?? 'Europe/Berlin') {
+  const raw = String(value ?? '').trim();
+  if (validIsoDay(raw)) return raw;
+  // The Actual UI reconcile flow stores Date.now().toString() — an
+  // epoch-milliseconds string, not a calendar day.
+  if (/^\d{12,14}$/u.test(raw)) {
+    const parsed = new Date(Number(raw));
+    if (Number.isFinite(parsed.getTime())) return capturedDay(parsed, timeZone);
+  }
+  return null;
+}
+
 function validSourceInstant(value, now) {
   const parsed = new Date(value);
   return Number.isFinite(parsed.getTime()) && parsed.getTime() <= now.getTime() + 5 * 60 * 1000;
@@ -406,7 +418,7 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
     const reconciliationDay = reconciliationCutoff.toISOString().slice(0, 10);
     const capturedDayValue = capturedDay(projectionNow);
     for (const account of snapshot.accounts.filter((account) => !account.closed)) {
-      const reconciled = validIsoDay(account.last_reconciled) ? account.last_reconciled : null;
+      const reconciled = reconciledDay(account.last_reconciled);
       if (!reconciled) {
         insertQuality.run(`reconciliation_missing:${account.id}`, capturedAt, 'reconciliation_missing',
           'actual-api', account.id, 'No authoritative Actual reconciliation date', null, 0, 'error', 'db-sync');
