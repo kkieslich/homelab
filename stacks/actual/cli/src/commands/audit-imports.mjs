@@ -33,7 +33,7 @@ export function auditTransactions(snapshot, registry) {
   const transactions = snapshot.transactions ?? [];
   const ownerByAccount = new Map(
     registry
-      .filter((entry) => entry.enabled && entry.source !== 'manual-actual')
+      .filter((entry) => entry.source !== 'manual-actual')
       .map((entry) => [entry.actual_account_id, entry]),
   );
   const importedIds = new Map();

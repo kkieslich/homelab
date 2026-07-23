@@ -99,3 +99,16 @@ test('does not flag legacy IDs on disabled manual-actual accounts, but still fla
 
   assert.deepEqual(report.legacy_id_schemes.map((t) => t.id), ['legacy']);
 });
+
+test('still flags legacy IDs on disabled importer-owned accounts', () => {
+  const report = auditTransactions({
+    transactions: [transaction('old', { account: 'disabled-account', imported_id: 'raw-bank-id' })],
+  }, [{
+    actual_account_id: 'disabled-account',
+    source: 'fints-umwelt',
+    source_account: 'umwelt-giro',
+    enabled: false,
+  }]);
+
+  assert.deepEqual(report.legacy_id_schemes.map((t) => t.id), ['old']);
+});
