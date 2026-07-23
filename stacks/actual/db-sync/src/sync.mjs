@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import * as api from '@actual-app/api';
 import Database from 'better-sqlite3';
 import { detectSubscriptions } from '../../cli/src/commands/subs.mjs';
+import { isIsoDay, normalizeText } from '../../fints-actual-bridge/src/importer/text.mjs';
 import { deriveCategoryRole, validateCategoryGroups } from './semantics.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -122,12 +123,7 @@ function scheduleRole(name) {
   return match[1].toLocaleLowerCase('und').replaceAll(' ', '_');
 }
 
-function validIsoDay(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(String(value ?? ''))) return false;
-  const [year, month, day] = value.split('-').map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
-}
+const validIsoDay = isIsoDay;
 
 export function reconciledDay(value, timeZone = process.env.ACTUAL_TIMEZONE ?? 'Europe/Berlin') {
   const raw = String(value ?? '').trim();
@@ -146,9 +142,7 @@ function validSourceInstant(value, now) {
   return Number.isFinite(parsed.getTime()) && parsed.getTime() <= now.getTime() + 5 * 60 * 1000;
 }
 
-function normalizedPayee(value) {
-  return String(value ?? '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('und');
-}
+const normalizedPayee = normalizeText;
 
 function duplicateCandidates(transactions, payeeNameById, checkedAt) {
   const groups = new Map();

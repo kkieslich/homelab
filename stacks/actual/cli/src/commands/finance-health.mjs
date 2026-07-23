@@ -1,11 +1,8 @@
 import Database from 'better-sqlite3';
 import { parseArgs } from '../lib/args.mjs';
+import { isIsoDay } from '../../../fints-actual-bridge/src/importer/text.mjs';
 
-function validDay(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value ?? '')) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
+const validDay = isIsoDay;
 
 export function financeHealth({ dbPath, now = new Date() }) {
   if (!dbPath) throw new Error('A snapshot SQLite path is required');

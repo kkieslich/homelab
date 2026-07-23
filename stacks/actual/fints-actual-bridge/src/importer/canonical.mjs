@@ -1,10 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { extractCardMerchant } from './merchant.mjs';
-
-function normalized(value) {
-  return String(value ?? '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('und');
-}
+import { normalizeText as normalized } from './text.mjs';
 
 export function transactionFingerprint(transaction) {
   const stableFields = [

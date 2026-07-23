@@ -137,3 +137,10 @@ test('synthetic fetch fallback references are weak lifecycle identities', () => 
   assert.equal(isWeakSourceReference('syn_0123456789abcdef012345678'), false);
   assert.equal(isWeakSourceReference('syn_0123456789abcdef0123456g'), false);
 });
+
+test('audit-style since validation never throws on regex-passing garbage', async () => {
+  const { isIsoDay } = await import('../src/importer/text.mjs');
+  assert.equal(isIsoDay('2024-13-01'), false);
+  assert.equal(isIsoDay('2024-02-30'), false);
+  assert.equal(isIsoDay('2024-02-29'), true);
+});

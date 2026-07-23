@@ -2,12 +2,9 @@ import fs from 'node:fs';
 
 import { parseArgs } from '../lib/args.mjs';
 import { withActual } from '../lib/client.mjs';
+import { normalizeText as normalize, isIsoDay } from '../../../fints-actual-bridge/src/importer/text.mjs';
 
 const REGISTRY_URL = new URL('../../config/accounts.json', import.meta.url);
-
-function normalize(value) {
-  return String(value ?? '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('und');
-}
 
 function publicTransaction(transaction) {
   return {
@@ -118,10 +115,7 @@ export function renderHuman(report) {
   return lines.join('\n');
 }
 
-function validSince(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
-  return new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
-}
+const validSince = (value) => isIsoDay(value);
 
 export async function run(argv) {
   const args = parseArgs(argv);

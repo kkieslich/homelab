@@ -1,4 +1,5 @@
-# Build context is stacks/actual/ (so we can copy both ./cli and ./db-sync).
+# Build context is stacks/actual/ (so we can copy ./cli, ./db-sync, and the
+# shared fints-actual-bridge/src/importer module).
 # better-sqlite3 needs build-essential on first install if no prebuilt binary
 # exists for the target arch; node:22-bookworm-slim ships a working toolchain.
 FROM node:22-bookworm-slim
@@ -20,6 +21,10 @@ RUN apt-get update \
 
 COPY cli/      ./cli/
 COPY db-sync/  ./db-sync/
+# Shared text/date identity module (no deps of its own); laid out as a
+# sibling of cli/ and db-sync/ so sync.mjs's ../../fints-actual-bridge/...
+# import and cli's ../../../fints-actual-bridge/... import both resolve.
+COPY fints-actual-bridge/src ./fints-actual-bridge/src
 
 ENV NODE_ENV=production
 ENV ACTUAL_DATA_DIR=/data

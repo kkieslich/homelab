@@ -1,15 +1,4 @@
-function isIsoDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
-  const [year, month, day] = value.split('-').map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return parsed.getUTCFullYear() === year
-    && parsed.getUTCMonth() === month - 1
-    && parsed.getUTCDate() === day;
-}
-
-function normalizeImportedPayee(value) {
-  return String(value ?? '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('und');
-}
+import { isIsoDay, normalizeText } from './text.mjs';
 
 export function validateBatch(records, { previousCount } = {}) {
   if (!Array.isArray(records)) throw new TypeError('records must be an array');
@@ -29,10 +18,10 @@ export function validateBatch(records, { previousCount } = {}) {
     if (importedIds.has(importedId)) throw new Error(`duplicate imported_id: ${importedId}`);
     importedIds.add(importedId);
 
-    if (!isIsoDate(record.date)) throw new Error(`record ${index}: invalid ISO date`);
+    if (!isIsoDay(record.date)) throw new Error(`record ${index}: invalid ISO date`);
     if (!Number.isInteger(record.amount)) throw new Error(`record ${index}: amount must be an integer`);
 
-    const fuzzyKey = `${record.date}|${record.amount}|${normalizeImportedPayee(record.imported_payee)}`;
+    const fuzzyKey = `${record.date}|${record.amount}|${normalizeText(record.imported_payee)}`;
     const group = fuzzyGroups.get(fuzzyKey) ?? [];
     group.push(record);
     fuzzyGroups.set(fuzzyKey, group);
