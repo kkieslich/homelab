@@ -148,6 +148,7 @@ def main() -> int:
     parser.add_argument("--bank", required=True, help="bank profile key from banks.toml")
     parser.add_argument("--out", required=True, help="where to write the fetch JSON on each cycle")
     parser.add_argument("--fetch-interval", type=int, default=3600, help="seconds between full fetches (default: 3600)")
+    parser.add_argument("--initial-fetch-max-age", type=int, default=600, help="on startup, skip the initial fetch only if the out-file is younger than this many seconds (default: 600)")
     parser.add_argument("--heartbeat-interval", type=int, default=180, help="seconds between session keep-alives (default: 180; UmweltBank dies after 300)")
     parser.add_argument("--days", type=int, default=30, help="lookback window in days for each fetch (default: 30)")
     parser.add_argument("--mt940", action="store_true", help="force HKKAZ/MT940 protocol (default honours profile.prefer_mt940)")
@@ -195,10 +196,11 @@ def main() -> int:
             except OSError:
                 existing_age_sec = None
 
-        if existing_age_sec is not None and existing_age_sec < args.fetch_interval:
+        skip_window = min(args.initial_fetch_max_age, args.fetch_interval)
+        if existing_age_sec is not None and existing_age_sec < skip_window:
             # Translate wall-clock age into the monotonic clock space the loop uses.
             last_fetch = time.monotonic() - existing_age_sec
-            logger.info("skipping initial fetch — %s is %.0fs old (< fetch-interval %ds)", out_path.name, existing_age_sec, args.fetch_interval)
+            logger.info("skipping initial fetch — %s is %.0fs old (< skip-window %ds)", out_path.name, existing_age_sec, skip_window)
         else:
             try:
                 _do_full_fetch(client, profile, args.days, use_mt940, out_path)

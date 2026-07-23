@@ -84,7 +84,7 @@ executions = [
 
 [[procedure]]
 name = "Actual - Sync Baader now"
-description = "Restarts the persistent Baader daemon. Wait for other Actual procedures to finish, then attach to its TTY if an SMS TAN is required."
+description = "Restarts the persistent Baader daemon; it fetches immediately unless the last fetch is under 10 minutes old. Attach to its TTY if an SMS TAN is required."
 tags = ["prod", "um870", "actual", "manual"]
 
 [[procedure.config.stage]]
