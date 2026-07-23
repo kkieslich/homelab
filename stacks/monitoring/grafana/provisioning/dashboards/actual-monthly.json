@@ -72,6 +72,25 @@
       "gridPos": { "x": 0, "y": 37, "w": 24, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
       "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH payee_baseline AS (SELECT payee_name,AVG(ABS(amount_cents)) avg_cents,COUNT(*) observations FROM consumption WHERE date>=date('now','-180 days') AND payee_name IS NOT NULL GROUP BY payee_name HAVING COUNT(*)>=3) SELECT c.date AS Date,c.payee_name AS Merchant,c.category_name AS Category,ROUND(ABS(c.amount_cents)/100.0,2) AS \"Amount EUR\",ROUND(p.avg_cents/100.0,2) AS \"180-day average EUR\",ROUND(ABS(c.amount_cents)/p.avg_cents,1) AS Multiple,p.observations AS \"Baseline observations\",MAX(c.date) OVER () AS data_as_of FROM consumption c JOIN payee_baseline p ON p.payee_name=c.payee_name WHERE c.date>=date('now','-30 days') AND ABS(c.amount_cents)>=2*p.avg_cents ORDER BY ABS(c.amount_cents)/p.avg_cents DESC LIMIT 20" }],
       "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Recurring spend per month (creep detector)", "description": "EUR/month, trailing 18 months, from the canonical consumption view. Bills, Subscriptions, Donations & Memberships, and Gym & Fitness categories, broken out per category. Slow-rising lines indicate subscription creep. Restored from the deleted actual-recurring.json dashboard; source swapped from the raw spending view to the canonical consumption view (Task 9-10 relation policy).",
+      "gridPos": { "x": 0, "y": 45, "w": 24, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "time series", "rawQueryText": "SELECT CAST(strftime('%s', month || '-01') AS INTEGER) AS time, category_name AS metric, -SUM(amount_cents) / 100.0 AS value FROM consumption WHERE category_name IN ('Bills', 'Bills (Flexible)', 'Subscriptions', 'Donations & Memberships', 'Gym & Fitness') AND date >= date('now', '-18 months') GROUP BY month, category_name ORDER BY month", "timeColumns": ["time"] }],
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 13, "type": "table", "title": "Stale subscriptions — was recurring, recently silent", "description": "Cadence-detected subscriptions the detector has marked inactive — was recurring, has gone silent. Cancellation-candidate surface, ordered by days since the last charge. Restored verbatim from the deleted actual-recurring.json dashboard; the subscriptions table schema and detector are unchanged.",
+      "gridPos": { "x": 0, "y": 53, "w": 12, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT payee_name AS Payee, cadence AS Cadence, ROUND(median_cents / 100.0, 2) AS \"Was: median (EUR)\", ROUND(annualized_cents / 100.0, 2) AS \"Was: per year\", count AS Count, first_seen AS \"First seen\", last_seen AS \"Last seen\", days_since_last AS \"Days since\" FROM subscriptions WHERE is_active = 0 ORDER BY days_since_last ASC" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
+    },
+    {
+      "id": 14, "type": "table", "title": "New recurring this month — payees first seen since the 1st", "description": "Consumption-role payees with spend since the start of this month that had no prior consumption-role spend. Anomaly surface: did you intentionally sign up for these? Restored from the deleted actual-recurring.json dashboard; source swapped from the raw spending/transactions views to the canonical consumption view (Task 9-10 relation policy), so first-seen is scoped to on-budget envelope spend rather than every raw transaction.",
+      "gridPos": { "x": 12, "y": 53, "w": 12, "h": 8 }, "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT payee_name AS Payee, COUNT(*) AS Txns, ROUND(-SUM(amount_cents) / 100.0, 2) AS \"Spend so far (EUR)\", MIN(date) AS \"First seen\", MAX(date) AS \"Last seen\" FROM consumption WHERE date >= date('now', 'start of month') AND payee_name NOT IN (SELECT DISTINCT payee_name FROM consumption WHERE payee_name IS NOT NULL AND date < date('now', 'start of month')) AND payee_name IS NOT NULL GROUP BY payee_name ORDER BY -SUM(amount_cents) DESC" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
     }
   ],
   "refresh": "1h", "schemaVersion": 39, "tags": ["actual", "finance", "monthly"], "templating": { "list": [] },

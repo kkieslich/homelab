@@ -19,6 +19,7 @@ const CANONICAL = new Set([
   'finance_trust', 'holdings', 'holdings_history', 'pipeline_runs',
   'expected_sources', 'data_quality',
   'safe_to_spend', 'pipeline_run_accounts', 'account_projection', 'budget_projection',
+  'subscriptions',
 ]);
 
 function queries(value, found = []) {
