@@ -56,8 +56,12 @@ export function auditTransactions(snapshot, registry) {
       if (canonicalPrefix && !importedId.startsWith(canonicalPrefix)) legacy.push(publicTransaction(transaction));
     }
 
-    const payeeIdentity = transaction.imported_payee || transaction.payee;
-    if (normalize(payeeIdentity)) {
+    // Normalize BEFORE the fallback: a whitespace-only imported_payee must
+    // fall through to the payee id, not suppress fuzzy detection entirely.
+    // duplicateCandidateKey re-normalizes internally; normalizeText is
+    // idempotent, so passing the normalized value through is byte-safe.
+    const payeeIdentity = normalize(transaction.imported_payee) || normalize(transaction.payee);
+    if (payeeIdentity) {
       const fuzzyKey = duplicateCandidateKey({
         accountId: transaction.account, date: transaction.date, amountCents: transaction.amount, payeeIdentity,
       });

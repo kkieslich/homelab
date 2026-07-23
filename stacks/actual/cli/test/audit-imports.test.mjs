@@ -59,6 +59,18 @@ test('classifies import identity, fuzzy, payee, and category findings without mu
   assert.doesNotMatch(JSON.stringify(report), /same shop|match_key/iu);
 });
 
+test('whitespace-only imported_payee falls back to the payee id for fuzzy grouping', () => {
+  const report = auditTransactions({
+    transactions: [
+      transaction('ws-a', { imported_payee: '   ', payee: 'payee-1' }),
+      transaction('ws-b', { imported_payee: null, payee: 'payee-1' }),
+    ],
+  }, registry);
+
+  assert.equal(report.counts.fuzzy_candidates, 1);
+  assert.deepEqual(report.fuzzy_candidates[0].transactions.map((t) => t.id), ['ws-a', 'ws-b']);
+});
+
 test('human output includes group counts and exact transaction IDs', () => {
   const report = auditTransactions({
     transactions: [
