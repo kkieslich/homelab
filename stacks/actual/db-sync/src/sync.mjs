@@ -471,7 +471,7 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         if (!source) continue;
         insertRunAccount.run(manifest.run_id, account.actual_account_id, source,
           manifest.requested_range?.from ?? null, manifest.requested_range?.to ?? null,
-          manifest.outcome, account.fetched ?? null, account.valid ?? null, account.added ?? null,
+          account.outcome ?? manifest.outcome, account.fetched ?? null, account.valid ?? null, account.added ?? null,
           account.updated ?? null, account.quarantined ?? 0);
       }
     }

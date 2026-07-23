@@ -276,7 +276,29 @@ test('finance trust rejects only-failed, empty, and stale-success source histori
     ('s','depot','stale','2020-01-01','success')`).run();
   const reasons = JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get());
   assert.ok(reasons.some(reason => reason.startsWith('missing_account_coverage:')));
-  assert.ok(reasons.includes('latest_account_attempt_empty:card'));
+  // A validated empty batch now counts as coverage (ranked_successes accepts outcome='empty'),
+  // so 'card' is no longer missing coverage outright; this fixture's omitted requested_from
+  // still fails the separate coverage-validity gate.
+  assert.ok(reasons.includes('invalid_account_coverage:card'));
+  db.close();
+});
+
+test('a validated empty batch counts as coverage and clears every trust gate', () => {
+  const db = projection();
+  for (const id of ['checking', 'card', 'depot']) {
+    db.prepare(`INSERT INTO account_projection (account_id,balance_as_of,last_reconciled,checked_at)
+      VALUES (?, date('now'), date('now'), datetime('now'))`).run(id);
+  }
+  db.prepare(`INSERT INTO current_budgets VALUES (strftime('%Y-%m','now'), 'fun','Fun','discretionary',0,0,10000,0)`).run();
+  db.prepare(`INSERT INTO expected_sources (account_id,source,expected_cadence_seconds) VALUES ('checking','bank',86400)`).run();
+  db.prepare(`INSERT INTO pipeline_runs (run_id,source,finished_at,requested_from,requested_to,outcome)
+    VALUES ('quiet','bank',datetime('now'),date('now'),date('now'),'empty')`).run();
+  db.prepare(`INSERT INTO pipeline_run_accounts
+    (run_id,account_id,source,requested_from,requested_to,outcome,valid) VALUES
+    ('quiet','checking','bank',date('now'),date('now'),'empty',0)`).run();
+  const trust = db.prepare('SELECT trusted,reasons FROM finance_trust').get();
+  assert.equal(trust.trusted, 1, trust.reasons);
+  assert.deepEqual(JSON.parse(trust.reasons), []);
   db.close();
 });
 

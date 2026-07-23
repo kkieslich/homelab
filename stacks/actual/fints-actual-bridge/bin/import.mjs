@@ -411,6 +411,9 @@ export async function runImport({
 
     const allAccountsEmpty = accounts.length > 0 && accounts.every((account) => account.valid === 0);
     const anyAccountEmpty = accounts.some((account) => account.valid === 0);
+    if (!dryRun) {
+      for (const account of accounts) account.outcome = account.valid > 0 ? 'success' : 'empty';
+    }
     const manifest = {
       schema_version: 1, run_id: runId,
       source: sources.size === 1 ? [...sources][0] : 'multiple',

@@ -17,7 +17,7 @@ export function financeHealth({ dbPath, now = new Date() }) {
       WHERE a.account_id=? AND a.source=? AND strftime('%s',p.finished_at) IS NOT NULL
       ORDER BY p.finished_at DESC,a.run_id DESC LIMIT 1`);
     const success = db.prepare(`SELECT a.*,p.finished_at FROM pipeline_run_accounts a JOIN pipeline_runs p USING(run_id)
-      WHERE a.account_id=? AND a.source=? AND a.outcome='success' AND strftime('%s',p.finished_at) IS NOT NULL
+      WHERE a.account_id=? AND a.source=? AND a.outcome IN ('success','empty') AND strftime('%s',p.finished_at) IS NOT NULL
         AND CAST(strftime('%s',p.finished_at) AS INTEGER)<=?+300
       ORDER BY a.requested_to DESC,p.finished_at DESC,a.run_id DESC LIMIT 1`);
     const accounts = expected.map((row) => {
@@ -33,7 +33,7 @@ export function financeHealth({ dbPath, now = new Date() }) {
       if (future) status = 'invalid_future_timestamp';
       else if (!row.expected_cadence_seconds || row.expected_cadence_seconds <= 0) status = 'missing_cadence';
       else if (!latestAttempt) status = 'missing_attempt';
-      else if (latestAttempt.outcome !== 'success') status = `latest_attempt_${latestAttempt.outcome}`;
+      else if (latestAttempt.outcome !== 'success' && latestAttempt.outcome !== 'empty') status = `latest_attempt_${latestAttempt.outcome}`;
       else if (!latestSuccess) status = 'missing_valid_success';
       else if (!coverageValid) status = 'invalid_coverage';
       else if (Math.floor((Date.parse(now.toISOString().slice(0, 10)) - Date.parse(latestSuccess.requested_to)) / 1000)

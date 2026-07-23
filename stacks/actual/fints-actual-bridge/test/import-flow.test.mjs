@@ -60,7 +60,7 @@ test('imports a validated canonical batch with deleted-record protection', async
   assert.equal(manifest.outcome, 'success');
   assert.deepEqual(manifest.accounts, [{
     actual_account_id: 'actual-account-1', fetched: 1, valid: 1,
-    added: 1, updated: 0, quarantined: 0,
+    added: 1, updated: 0, quarantined: 0, outcome: 'success',
   }]);
 });
 
@@ -670,6 +670,34 @@ test('later-account legacy ambiguity prevents earlier-account migration globally
     },
   }), /validation failed/i);
   assert.deepEqual(writes, []);
+});
+
+test('quiet account gets its own empty outcome while siblings stay success', async () => {
+  const twoConfig = { banks: { fixture: { accounts: [
+    { iban: 'FIRST', actual_account_id: 'first-account' },
+    { iban: 'SECOND', actual_account_id: 'second-account' },
+  ] } } };
+  const twoRegistry = [
+    { actual_account_id: 'first-account', source: 'fints-fixture', source_account: 'first', enabled: true },
+    { actual_account_id: 'second-account', source: 'fints-fixture', source_account: 'second', enabled: true },
+  ];
+  const firstTx = { ...transaction, imported_id: 'FIRST-RAW' };
+  const secondTx = { ...transaction, imported_id: 'SECOND-RAW', date: '2026-07-02' };
+  const twoPayload = { bank: { key: 'fixture' }, accounts: [
+    { iban: 'FIRST', transactions: [firstTx, secondTx] },
+    { iban: 'SECOND', transactions: [] },
+  ] };
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const manifest = await runImport({
+    payload: twoPayload, config: twoConfig, registry: twoRegistry, manifestDir,
+    actualApi: { async importTransactions() { return { added: ['one', 'two'], updated: [] }; } },
+    now: () => new Date('2026-07-18T10:00:00.000Z'),
+  });
+  assert.equal(manifest.outcome, 'partial_empty');
+  const first = manifest.accounts.find((account) => account.actual_account_id === 'first-account');
+  const second = manifest.accounts.find((account) => account.actual_account_id === 'second-account');
+  assert.equal(first.outcome, 'success');
+  assert.equal(second.outcome, 'empty');
 });
 
 function toActualForTest(sourceTransaction) {
