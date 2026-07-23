@@ -303,6 +303,7 @@ decision; a generic note is not a substitute.
 4. For expired Baader authentication, restart only the daemon and attach for
    the SMS TAN. For UmweltBank, rerun its single one-shot procedure only after
    the failed run is understood.
+   If the Baader daemon exhausted its 3 restart attempts (hard bank rejection), investigate the logs BEFORE running **Actual - Sync Baader now**; repeated failed logins can lock the bank PIN.
 5. If transactions were already written, compare the ledger and bank evidence;
    merge only confirmed duplicates in Actual. Same-day/date/amount similarity
    alone is insufficient.

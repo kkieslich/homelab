@@ -81,6 +81,9 @@ services:
   fints_daemon_baader:
     <<: *fints-base
     container_name: fints_daemon_baader
+    # Bounded: a hard bank rejection must not loop into fresh logins (PIN lockout).
+    # After 3 failures the daemon stays down until "Actual - Sync Baader now".
+    restart: on-failure:3
     stdin_open: true
     tty: true
     command:
