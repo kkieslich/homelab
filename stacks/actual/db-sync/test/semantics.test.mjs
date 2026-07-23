@@ -107,6 +107,25 @@ test('finance trust exposes machine-readable reasons for every trust gate', () =
   db.close();
 });
 
+test('CANARY: month-close depends on this exact trust reason string', () => {
+  // cli/src/commands/month-close.mjs:31 filters the literal 'review_queue_exceeded'
+  // out of finance_trust's reasons to allow annotated review items to close a
+  // month. Renaming the reason in schema.sql without updating that filter
+  // would either hard-block every close (string no longer matches, so the
+  // reason is never subtracted) or, if renamed the other way, falsely
+  // unblock a close that should still be gated. This test pins the string.
+  const db = projection();
+  const clone = db.prepare(`INSERT INTO transactions
+    SELECT ?,date,account_id,account_name,account_offbudget,amount_cents,payee_id,payee_name,
+      NULL,NULL,NULL,NULL,0,notes,cleared,reconciled,NULL,0,?,year,month,ymd_unix
+    FROM transactions WHERE id='grocery'`);
+  for (let i = 0; i < 11; i++) clone.run(`canary-review-${i}`, `bank:canary-review-${i}`);
+  const row = db.prepare('SELECT trusted, reasons FROM finance_trust').get();
+  assert.equal(row.trusted, 0);
+  assert.ok(JSON.parse(row.reasons).includes('review_queue_exceeded'));
+  db.close();
+});
+
 test('unresolved_quarantine only fires for the latest attempt, not any historical run', () => {
   const db = projection();
   db.prepare(`INSERT INTO expected_sources (account_id,source,expected_cadence_seconds) VALUES ('checking','bank',86400)`).run();

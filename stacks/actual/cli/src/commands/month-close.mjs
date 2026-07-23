@@ -1,37 +1,8 @@
 import Database from 'better-sqlite3';
 import { parseArgs } from '../lib/args.mjs';
 import { requireUtcInstant } from '../lib/validation.mjs';
-import { isIsoDay } from '../../../fints-actual-bridge/src/importer/text.mjs';
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
-
-function parseDay(value) {
-  if (!isIsoDay(value)) throw new Error(`Invalid date: ${value}`);
-  return new Date(`${value}T00:00:00Z`);
-}
-
-export function calculateSafeToSpend({ categories, schedules, today }) {
-  const day = parseDay(today);
-  const nextMonth = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 1));
-  const remainingDays = Math.round((nextMonth - day) / 86400000);
-  const discretionary = categories
-    .filter(category => category.role === 'discretionary' && category.available > 0)
-    .reduce((sum, category) => sum + category.available, 0);
-  const underfunded = categories
-    .filter(category => ['essential', 'flexible_essential'].includes(category.role) && category.available < 0)
-    .reduce((sum, category) => sum + Math.abs(category.available), 0);
-  const scheduled = schedules
-    .filter(schedule => schedule.role === 'discretionary' && !schedule.paid
-      && /^\d{4}-\d{2}-\d{2}$/.test(schedule.due ?? '')
-      && schedule.due < nextMonth.toISOString().slice(0, 10))
-    .reduce((sum, schedule) => sum + Math.abs(Math.min(schedule.amount, 0)), 0);
-  const monthCents = discretionary - underfunded - scheduled;
-  return {
-    month_cents: monthCents,
-    remaining_days: remainingDays,
-    per_day_cents: Math.floor(Math.max(monthCents, 0) / remainingDays),
-  };
-}
 
 function validateMonth(month) {
   if (!MONTH_RE.test(month)) throw new Error(`Invalid month: ${month}`);
@@ -57,6 +28,8 @@ export function captureMonthClose({ dbPath, month, apply = false, capturedAt, no
     const reasons = JSON.parse(trust?.reasons ?? '[]');
     // finance_trust historically includes review_queue_exceeded. A complete set
     // of typed annotations resolves only that reason; no other trust failure.
+    // Renaming this reason requires updating the other file + the canary test:
+    // db-sync/src/schema.sql's review_queue_exceeded line and db-sync/test/semantics.test.mjs.
     const nonReviewReasons = reasons.filter(reason => reason !== 'review_queue_exceeded');
     if (!trust?.trusted && (nonReviewReasons.length || review.length)) {
       throw new Error(`Finance projection is not trusted: ${reasons.join(', ')}`);

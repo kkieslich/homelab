@@ -6,36 +6,10 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { calculateSafeToSpend, captureMonthClose } from '../src/commands/month-close.mjs';
+import { captureMonthClose } from '../src/commands/month-close.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA = fs.readFileSync(path.join(HERE, '../../db-sync/src/schema.sql'), 'utf8');
-
-test('calculates safe to spend including today and unpaid schedules through month end', () => {
-  assert.deepEqual(calculateSafeToSpend({
-    categories: [
-      { role: 'discretionary', available: 30000 },
-      { role: 'flexible_essential', available: -5000 },
-    ],
-    schedules: [
-      { role: 'discretionary', amount: -4000, due: '2026-07-25', paid: false },
-      { role: 'discretionary', amount: -1000, due: '2026-06-30', paid: false },
-      { role: 'discretionary', amount: -9999, due: '2026-08-01', paid: false },
-    ],
-    today: '2026-07-18',
-  }), { month_cents: 20000, remaining_days: 14, per_day_cents: 1428 });
-});
-
-test('handles negative availability, paid schedules, month end, and leap years', () => {
-  assert.deepEqual(calculateSafeToSpend({
-    categories: [{ role: 'flexible_essential', available: -100 }], schedules: [], today: '2024-02-29',
-  }), { month_cents: -100, remaining_days: 1, per_day_cents: 0 });
-  assert.deepEqual(calculateSafeToSpend({
-    categories: [{ role: 'discretionary', available: 1000 }],
-    schedules: [{ role: 'discretionary', amount: -900, due: '2024-02-29', paid: true }],
-    today: '2024-02-28',
-  }), { month_cents: 1000, remaining_days: 2, per_day_cents: 500 });
-});
 
 async function fixture({ review = false, annotate = false } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), 'month-close-'));

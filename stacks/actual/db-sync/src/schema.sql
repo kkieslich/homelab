@@ -391,6 +391,8 @@ WITH ranked_attempts AS (
    JOIN pipeline_runs p ON p.run_id=a.run_id
    JOIN expected_sources e ON e.account_id=a.account_id AND e.source=a.source
    WHERE a.quarantined > 0 AND p.resolved = 0
+  -- Renaming this reason requires updating the other file + the canary test:
+  -- cli/src/commands/month-close.mjs's nonReviewReasons filter and db-sync/test/semantics.test.mjs.
   UNION SELECT 'review_queue_exceeded' FROM (SELECT COUNT(*) n FROM review_queue) WHERE n > 10
   UNION SELECT 'schedule_projection_incomplete' FROM schedule_projection WHERE complete=0
   UNION SELECT 'missing_schedule_projection' WHERE NOT EXISTS (SELECT 1 FROM schedule_projection)
