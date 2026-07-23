@@ -240,6 +240,7 @@ export async function runImport({
           isWeakSourceReference(transaction.imported_id) && transaction.status !== 'BOOK');
         const transactions = rawTransactions.filter((transaction) =>
           !isWeakSourceReference(transaction.imported_id) || transaction.status === 'BOOK');
+        let seeded = false;
         if (seedBalance) {
           const opening = (sourceAccount.balances ?? []).find((balance) => balance.type === 'OPBD');
           if (opening && safeIsoDate(opening.date) && Number.isFinite(opening.amount_cents)) {
@@ -253,6 +254,7 @@ export async function runImport({
               imported_id: `fints-bridge-opening-balance-${mapping.actual_account_id}`,
               status: 'BOOK',
             });
+            seeded = true;
           }
         }
         const items = transactions.map((transaction) => ({
@@ -262,7 +264,7 @@ export async function runImport({
           record: toActualTransaction({ source: owner.source, sourceAccount: owner.source_account, transaction }),
         }));
         const records = items.map(({ record }) => record);
-        if (transactions.length > rawTransactions.length) records[0].imported_payee = 'Opening Balance';
+        if (seeded) records[0].imported_payee = 'Opening Balance';
         // Two indistinguishable weak-reference transactions fingerprint to the
         // same canonical ID; suffix later occurrences. Multiset-stable across
         // fetches because members of an identical group are interchangeable.
@@ -368,7 +370,7 @@ export async function runImport({
         try {
           if (delta !== 0) {
             const record = {
-              date: instant(now).slice(0, 10), amount: delta,
+              date: financeDay(instant(now), financeTimeZone), amount: delta,
               payee_name: 'Holdings revaluation', imported_payee: 'Holdings revaluation',
               notes: `Auto-adjustment so depot balance equals SUM(holdings.total_value) = €${(target / 100).toFixed(2)}`,
               imported_id: `${revaluationPrefix}${job.mapping.actual_account_id}`,

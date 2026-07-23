@@ -350,6 +350,24 @@ test('seed balance prepends the stable canonical opening balance transaction', a
   });
 });
 
+test('seed balance is still relabeled when a pending weak-reference transaction is filtered from the same batch', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const seeded = structuredClone(payload);
+  seeded.accounts[0].balances = [{ type: 'OPBD', date: '2026-07-01', amount_cents: 5000, currency: 'EUR' }];
+  seeded.accounts[0].transactions = [
+    transaction,
+    { ...transaction, imported_id: 'NONREF', status: 'PDNG' },
+  ];
+  let records;
+  await runImport({
+    payload: seeded, config, registry,
+    actualApi: { async importTransactions(_id, value) { records = value; return {}; } },
+    manifestDir, seedBalance: true,
+    now: () => new Date('2026-07-18T10:00:00.000Z'),
+  });
+  assert.equal(records[0].imported_payee, 'Opening Balance');
+});
+
 test('dry run emits canonical transaction JSON through the injected output', async () => {
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   const output = [];
@@ -465,6 +483,23 @@ test('depot revaluation update sends only transactions-table fields', async () =
   assert.equal(updates[0][0], 'valuation');
   assert.equal(updates[0][1].amount, 15000);
   assert.equal(updates[0][1].imported_payee, 'Holdings revaluation');
+});
+
+test('depot revaluation date uses the finance-timezone day, not the UTC day', async () => {
+  const setup = depotSetup();
+  const calls = [];
+  const actualApi = {
+    async getTransactions() { return []; },
+    async importTransactions(...args) { calls.push(args); return { added: ['ok'], updated: [] }; },
+  };
+  // 22:30 UTC on Aug 31 is already 00:30 CEST on Sep 1 in Europe/Berlin: an
+  // hourly run at that moment must not write the revaluation into the
+  // just-closed month.
+  await runImport({
+    ...setup, actualApi, manifestDir: await mkdtemp(join(tmpdir(), 'import-flow-')),
+    now: () => new Date('2026-08-31T22:30:00Z'), financeTimeZone: 'Europe/Berlin',
+  });
+  assert.equal(calls[0][1][0].date, '2026-09-01');
 });
 
 test('failed depot update retains the previous valid valuation and never deletes it', async () => {
