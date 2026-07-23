@@ -402,18 +402,19 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         }
         if (schedule.completed) continue;
         const role = scheduleRole(schedule.name);
-        const signValid = role === 'income' ? schedule.amount > 0 : schedule.amount < 0;
-        if (!schedule.id || !schedule.name) errors.add('identity');
-        if (!role) errors.add('role');
-        if (!validIsoDay(schedule.next_date)) errors.add('next_date');
-        if (schedule.amountOp !== 'is') errors.add('amount_op');
-        if (!Number.isInteger(schedule.amount)) errors.add('amount');
-        if (Number.isInteger(schedule.amount) && role && !signValid) errors.add('amount_sign');
-        const valid = schedule.id && schedule.name && role && validIsoDay(schedule.next_date)
-          && schedule.amountOp === 'is' && Number.isInteger(schedule.amount) && signValid;
-        if (!valid) continue;
-        insertSchedule.run(schedule.id, schedule.name ?? 'Unnamed schedule', role, schedule.next_date ?? null,
-          schedule.amount, 0, schedulesFetchedAt);
+        const failed = [];
+        if (!schedule.id || !schedule.name) failed.push('identity');
+        if (!role) failed.push('role');
+        if (!validIsoDay(schedule.next_date)) failed.push('next_date');
+        if (schedule.amountOp !== 'is') failed.push('amount_op');
+        if (!Number.isInteger(schedule.amount)) failed.push('amount');
+        if (Number.isInteger(schedule.amount) && role
+          && !(role === 'income' ? schedule.amount > 0 : schedule.amount < 0)) failed.push('amount_sign');
+        if (failed.length) {
+          for (const f of failed) errors.add(f);
+          continue;
+        }
+        insertSchedule.run(schedule.id, schedule.name, role, schedule.next_date, schedule.amount, 0, schedulesFetchedAt);
       }
       insertScheduleProjection.run(schedulesFetchedAt, errors.size === 0 ? 1 : 0,
         errors.size === 0 ? 'authoritative_actual_api' : `invalid_active_schedule:${[...errors].sort().join(',')}`, 900);

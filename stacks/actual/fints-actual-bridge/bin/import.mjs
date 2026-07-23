@@ -158,7 +158,6 @@ export async function runImport({
   const accounts = [];
   const depotJobs = [];
   const allHoldings = [];
-  const recordsByActualId = new Map();
   const perBank = new Map();
   const sources = new Set();
   const intendedSources = new Set();
@@ -168,16 +167,27 @@ export async function runImport({
   try {
     // Resolve safe ownership context before range validation so even a
     // pre-import failure can be attributed to the intended expected accounts.
+    // `planned` is the single bankKey/mapping/ownership resolution pass: it
+    // drives both the failure-manifest attribution below and the main loop's
+    // error checks further down, so the matching logic exists exactly once.
     const ownership = validateOwnership(registry);
-    for (const bankPayload of bankPayloads(payload)) {
+    const banks = bankPayloads(payload);
+    const planned = banks.map((bankPayload) => {
       const bankKey = String(bankPayload.bank?.key ?? '').trim();
-      for (const sourceAccount of bankPayload.accounts ?? []) {
+      const entries = (bankPayload.accounts ?? []).map((sourceAccount) => {
         const mapping = accountMapping(config, bankKey, sourceAccount);
         const owner = mapping && ownership.get(mapping.actual_account_id);
-        if (!owner?.enabled || owner.source !== `fints-${bankKey}`) continue;
-        intendedSources.add(owner.source);
+        const owned = Boolean(owner?.enabled && owner.source === `fints-${bankKey}`);
+        return { sourceAccount, mapping, owner, owned };
+      });
+      return { bankKey, entries };
+    });
+    for (const { entries } of planned) {
+      for (const entry of entries) {
+        if (!entry.owned) continue;
+        intendedSources.add(entry.owner.source);
         intendedAccounts.push({
-          actual_account_id: mapping.actual_account_id,
+          actual_account_id: entry.mapping.actual_account_id,
           fetched: 0, valid: 0, added: 0, updated: 0, quarantined: 0,
         });
       }
@@ -186,17 +196,14 @@ export async function runImport({
     // payload cannot safely share one range unless every bank window matches.
     manifestRange = requestedRange(payload, financeDay(startedAt, financeTimeZone));
     const priorManifests = await readRunManifests(manifestDir);
-    const banks = bankPayloads(payload);
     if (banks.length === 0) throw new Error('empty payload');
 
-    for (const bankPayload of banks) {
-      const bankKey = String(bankPayload.bank?.key ?? '').trim();
+    for (const { bankKey, entries } of planned) {
       if (!bankKey) throw new Error('missing bank key');
-      for (const sourceAccount of bankPayload.accounts ?? []) {
-        const mapping = accountMapping(config, bankKey, sourceAccount);
+      for (const entry of entries) {
+        const { sourceAccount, mapping, owner, owned } = entry;
         if (!mapping?.actual_account_id) throw new Error('account mapping missing');
-        const owner = ownership.get(mapping.actual_account_id);
-        if (!owner?.enabled || owner.source !== `fints-${bankKey}`) throw new Error('account ownership mismatch');
+        if (!owned) throw new Error('account ownership mismatch');
         sources.add(owner.source);
 
         if (sourceAccount.type === 'depot') {
@@ -285,13 +292,15 @@ export async function runImport({
         summary.valid = validated.records.length;
         summary.duplicate_candidates = validated.duplicateCandidates.length;
         batches.push({ bankKey, actualAccountId: mapping.actual_account_id, records: validated.records, items, summary });
-        recordsByActualId.set(mapping.actual_account_id,
-          (recordsByActualId.get(mapping.actual_account_id) ?? []).concat(validated.records));
       }
     }
 
     if (dryRun) {
-      output(`${JSON.stringify(Object.fromEntries(recordsByActualId), null, 2)}\n`);
+      const byAccount = {};
+      for (const batch of batches) {
+        byAccount[batch.actualAccountId] = (byAccount[batch.actualAccountId] ?? []).concat(batch.records);
+      }
+      output(`${JSON.stringify(byAccount, null, 2)}\n`);
     } else {
       // Finish every ambiguity/read check before the first mutation. This makes
       // canonical-ID migration fail closed rather than partially importing.
