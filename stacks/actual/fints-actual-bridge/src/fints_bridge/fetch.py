@@ -204,9 +204,11 @@ def _mt940_to_dict(t) -> dict:
     value_date = d.get("entry_date") or d.get("guessed_entry_date")
     payee = d.get("applicant_name") or d.get("applicant_creditor_id")
     purpose = d.get("purpose") or d.get("additional_purpose")
-    raw_id = d.get("transaction_reference") or d.get("bank_reference") or _synthetic(booking_date, amount_cents, payee, purpose)
+    raw_ref = d.get("transaction_reference") or d.get("bank_reference")
+    raw_id = raw_ref or _synthetic(booking_date, amount_cents, payee, purpose)
     return {
         "imported_id": raw_id,
+        "reference_quality": "bank" if raw_ref else "synthetic",
         "date": booking_date.isoformat() if booking_date else None,
         "value_date": value_date.isoformat() if value_date else None,
         "amount_cents": amount_cents,

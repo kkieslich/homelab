@@ -54,10 +54,12 @@ class CamtTransaction:
     end_to_end_id: str | None
     account_servicer_ref: str | None
     raw_id: str  # stable id for dedup, falls back through {acct_svcr_ref, end_to_end_id, hash}
+    reference_quality: str  # "bank" (acct_svcr_ref/end_to_end_id) or "synthetic" (hashed fallback)
 
     def to_dict(self) -> dict:
         return {
             "imported_id": self.raw_id,
+            "reference_quality": self.reference_quality,
             "date": self.booking_date.isoformat() if self.booking_date else None,
             "value_date": self.value_date.isoformat() if self.value_date else None,
             "amount_cents": self.amount_cents,
@@ -143,7 +145,8 @@ def _parse_entry(ntry: etree._Element, ns: str) -> CamtTransaction:
             if ustrd:
                 purpose = " ".join((u.text or "").strip() for u in ustrd if u.text)
 
-    raw_id = acct_svcr_ref or end_to_end_id or _synthetic_id(
+    bank_ref = acct_svcr_ref or end_to_end_id
+    raw_id = bank_ref or _synthetic_id(
         booking_date, amount_cents, counterparty, purpose
     )
 
@@ -158,6 +161,7 @@ def _parse_entry(ntry: etree._Element, ns: str) -> CamtTransaction:
         end_to_end_id=end_to_end_id,
         account_servicer_ref=acct_svcr_ref,
         raw_id=raw_id,
+        reference_quality="bank" if bank_ref else "synthetic",
     )
 
 

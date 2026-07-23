@@ -21,10 +21,21 @@ export function isWeakSourceReference(value) {
   return WEAK_REFERENCES.has(reference) || /^SYN_[0-9A-F]{24}$/u.test(reference);
 }
 
+// Prefers the fetcher's structured `reference_quality` field over reverse-
+// engineering the ID string. Only truly SYNTHESIZED ids are "synthetic";
+// bank-supplied placeholder tokens (e.g. NONREF) are "bank"-sourced but still
+// weak, so the literal/pattern check in isWeakSourceReference stays as the
+// fallback for those — 'bank' quality does NOT short-circuit to false.
+// Absent field (older payloads, tests) falls through to the legacy heuristics.
+export function isWeakReference(transaction) {
+  if (transaction?.reference_quality === 'synthetic') return true;
+  return isWeakSourceReference(transaction?.imported_id);
+}
+
 export function canonicalSourceTransactionId(transaction) {
   const supplied = String(transaction?.imported_id ?? '').trim();
   if (!supplied) throw new Error('sourceTransactionId is required');
-  return isWeakSourceReference(supplied)
+  return isWeakReference(transaction)
     ? `${supplied}~${transactionFingerprint(transaction)}`
     : supplied;
 }

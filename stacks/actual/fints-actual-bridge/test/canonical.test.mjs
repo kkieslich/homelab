@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { canonicalImportedId, isWeakSourceReference, toActualTransaction } from '../src/importer/canonical.mjs';
+import { canonicalImportedId, isWeakReference, isWeakSourceReference, toActualTransaction } from '../src/importer/canonical.mjs';
 
 test('canonical ID is stable and namespaced', () => {
   assert.equal(canonicalImportedId({ source: 'fints-umwelt', sourceAccount: 'card-1', sourceTransactionId: 'CARD-001' }), 'fints-umwelt:card-1:CARD-001');
@@ -136,6 +136,37 @@ test('synthetic fetch fallback references are weak lifecycle identities', () => 
   assert.equal(isWeakSourceReference('syn_0123456789abcdef0123456'), false);
   assert.equal(isWeakSourceReference('syn_0123456789abcdef012345678'), false);
   assert.equal(isWeakSourceReference('syn_0123456789abcdef0123456g'), false);
+});
+
+test('isWeakReference: structured synthetic quality is weak even for a non-SYN id', () => {
+  const transaction = { imported_id: 'ARBITRARY-OPAQUE-ID', reference_quality: 'synthetic' };
+  assert.equal(isWeakReference(transaction), true);
+  assert.equal(isWeakSourceReference(transaction.imported_id), false);
+
+  const actual = toActualTransaction({
+    source: 'fints-baader', sourceAccount: 'cash', transaction: {
+      date: '2026-07-08', amount_cents: -1299, currency: 'EUR', status: 'BOOK',
+      payee_name: 'Cafe', notes: 'Terminal 123',
+      imported_id: 'ARBITRARY-OPAQUE-ID', reference_quality: 'synthetic',
+    },
+  });
+  assert.ok(actual.imported_id.includes('ARBITRARY-OPAQUE-ID~'));
+});
+
+test('isWeakReference: structured bank quality still defers to the literal set for NONREF', () => {
+  const transaction = { imported_id: 'NONREF', reference_quality: 'bank' };
+  assert.equal(isWeakReference(transaction), true);
+});
+
+test('isWeakReference: structured bank quality with a strong id is not weak', () => {
+  const transaction = { imported_id: 'REAL-BANK-REFERENCE-123', reference_quality: 'bank' };
+  assert.equal(isWeakReference(transaction), false);
+});
+
+test('isWeakReference: absent reference_quality falls back to legacy heuristics unchanged', () => {
+  assert.equal(isWeakReference({ imported_id: 'NONREF' }), true);
+  assert.equal(isWeakReference({ imported_id: 'syn_0123456789abcdef01234567' }), true);
+  assert.equal(isWeakReference({ imported_id: 'REAL-BANK-REFERENCE' }), false);
 });
 
 test('audit-style since validation never throws on regex-passing garbage', async () => {

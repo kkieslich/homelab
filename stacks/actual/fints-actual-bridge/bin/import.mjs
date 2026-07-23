@@ -10,7 +10,7 @@ import { parseArgs } from 'node:util';
 import * as actual from '@actual-app/api';
 import * as toml from 'smol-toml';
 
-import { canonicalImportedId, isWeakSourceReference, toActualTransaction } from '../src/importer/canonical.mjs';
+import { canonicalImportedId, isWeakReference, toActualTransaction } from '../src/importer/canonical.mjs';
 import { pruneRunManifests, readRunManifests, writeRunManifest } from '../src/importer/manifest.mjs';
 import { validateOwnership } from '../src/importer/registry.mjs';
 import { validateBatch } from '../src/importer/validate.mjs';
@@ -229,9 +229,9 @@ export async function runImport({
 
         const rawTransactions = sourceAccount.transactions ?? [];
         const pendingWeak = rawTransactions.filter((transaction) =>
-          isWeakSourceReference(transaction.imported_id) && transaction.status !== 'BOOK');
+          isWeakReference(transaction) && transaction.status !== 'BOOK');
         const transactions = rawTransactions.filter((transaction) =>
-          !isWeakSourceReference(transaction.imported_id) || transaction.status === 'BOOK');
+          !isWeakReference(transaction) || transaction.status === 'BOOK');
         let seeded = false;
         if (seedBalance) {
           const opening = (sourceAccount.balances ?? []).find((balance) => balance.type === 'OPBD');
@@ -262,7 +262,7 @@ export async function runImport({
         // fetches because members of an identical group are interchangeable.
         const weakOccurrences = new Map();
         for (const item of items) {
-          if (!isWeakSourceReference(item.transaction.imported_id)) continue;
+          if (!isWeakReference(item.transaction)) continue;
           const count = (weakOccurrences.get(item.record.imported_id) ?? 0) + 1;
           weakOccurrences.set(item.record.imported_id, count);
           if (count > 1) item.record.imported_id = `${item.record.imported_id}~${count}`;
