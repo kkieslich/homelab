@@ -619,12 +619,12 @@ git commit -m "fix(actual): use finance day for revaluations and flag seeded bat
 ```js
   const ownerByAccount = new Map(
     registry
-      .filter((entry) => entry.enabled && entry.source !== 'manual-actual')
+      .filter((entry) => entry.source !== 'manual-actual')
       .map((entry) => [entry.actual_account_id, entry]),
   );
 ```
 
-(Verify with `jq '.[].source' stacks/actual/cli/config/accounts.json` that the manual sentinel is exactly `manual-actual`; if entries use another literal, filter on that.) The fuzzy/duplicate/missing-payee passes are account-agnostic and unchanged.
+(Verify with `jq '.[].source' stacks/actual/cli/config/accounts.json` that the manual sentinel is exactly `manual-actual`; if entries use another literal, filter on that. EXECUTION RULING 2026-07-23: the exclusion is source-only — a temporarily-disabled `fints-*` account keeps its legacy audit coverage, since its migration debt is real and resumes mattering on re-enable; only permanently-manual accounts are noise.) The fuzzy/duplicate/missing-payee passes are account-agnostic and unchanged.
 
 - [ ] **Step 3: Run cli suite, commit**
 
