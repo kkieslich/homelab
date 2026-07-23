@@ -6,7 +6,9 @@ export function validateBatch(records, { previousCount } = {}) {
     throw new TypeError('previousCount must be a non-negative integer');
   }
   if (records.length === 0 && previousCount > 0) {
-    throw new Error(`unexpected empty batch after previous count ${previousCount}`);
+    const error = new Error(`unexpected empty batch after previous count ${previousCount}`);
+    error.code = 'EMPTY_BATCH';
+    throw error;
   }
 
   const importedIds = new Set();

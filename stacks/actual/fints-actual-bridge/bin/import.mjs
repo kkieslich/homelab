@@ -18,6 +18,12 @@ import { normalizeText as normalized, isIsoDay } from '../src/importer/text.mjs'
 
 const IMPORTER_VERSION = '0.1.0';
 
+function coded(code, message, cause) {
+  const error = new Error(message, { cause });
+  error.code = code;
+  return error;
+}
+
 function instant(now) {
   const value = typeof now === 'function' ? now() : new Date();
   return (value instanceof Date ? value : new Date(value)).toISOString();
@@ -30,7 +36,7 @@ export function financeDay(value, timeZone = process.env.FINANCE_TIMEZONE ?? 'Eu
       timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
     }).formatToParts(new Date(value)).map((part) => [part.type, part.value]));
   } catch (error) {
-    throw new Error(`Invalid finance timezone: ${timeZone}`, { cause: error });
+    throw coded('INVALID_TIMEZONE', `Invalid finance timezone: ${timeZone}`, error);
   }
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
@@ -153,7 +159,6 @@ export async function runImport({
   const sources = new Set();
   const intendedSources = new Set();
   const intendedAccounts = [];
-  let errorCode = null;
   let manifestRange = { from: null, to: null };
 
   try {
@@ -266,8 +271,9 @@ export async function runImport({
         try {
           validated = validateBatch(records, { previousCount: evidence.successfulCount });
         } catch (error) {
-          if (/unexpected empty batch/i.test(error.message)) errorCode = 'EMPTY_BATCH_REGRESSION';
-          throw error;
+          throw error.code === 'EMPTY_BATCH'
+            ? coded('EMPTY_BATCH_REGRESSION', 'Unexpected empty batch regression', error)
+            : error;
         }
         if (records.length === 0) {
           summary.empty_batch = evidence.previouslyObservedEmpty ? 'previously_observed_empty' : 'first_observed';
@@ -317,9 +323,8 @@ export async function runImport({
         for (const migration of migrationPlans) {
           await actualApi.updateTransaction(migration.id, { imported_id: migration.imported_id });
         }
-      } catch {
-        errorCode = 'ACTUAL_IMPORT_FAILED';
-        throw new Error('Actual import failed');
+      } catch (cause) {
+        throw coded('ACTUAL_IMPORT_FAILED', 'Actual import failed', cause);
       }
 
       for (const batch of batches) {
@@ -327,9 +332,8 @@ export async function runImport({
         let result;
         try {
           result = await actualApi.importTransactions(batch.actualAccountId, batch.records, { reimportDeleted: false });
-        } catch {
-          errorCode = 'ACTUAL_IMPORT_FAILED';
-          throw new Error('Actual import failed');
+        } catch (cause) {
+          throw coded('ACTUAL_IMPORT_FAILED', 'Actual import failed', cause);
         }
         batch.summary.added = resultCount(result, 'added');
         batch.summary.updated = resultCount(result, 'updated');
@@ -374,9 +378,8 @@ export async function runImport({
           bucket.added += job.summary.added;
           bucket.updated += job.summary.updated;
           perBank.set(job.bankKey, bucket);
-        } catch {
-          errorCode = 'ACTUAL_IMPORT_FAILED';
-          throw new Error('Actual import failed');
+        } catch (cause) {
+          throw coded('ACTUAL_IMPORT_FAILED', 'Actual import failed', cause);
         }
       }
 
@@ -415,6 +418,7 @@ export async function runImport({
     await pruneRunManifests(manifestDir, { now: typeof now === 'function' ? now() : now });
     return manifest;
   } catch (cause) {
+    const code = cause?.code ?? null;
     const manifest = {
       schema_version: 1, run_id: runId,
       source: sources.size === 1 ? [...sources][0]
@@ -422,12 +426,13 @@ export async function runImport({
       importer_version: IMPORTER_VERSION,
       started_at: startedAt, finished_at: instant(now),
       requested_range: manifestRange, accounts: accounts.length ? accounts : intendedAccounts,
-      outcome: 'failed', error_code: errorCode ?? 'VALIDATION_FAILED',
+      outcome: 'failed',
+      error_code: code === 'INVALID_TIMEZONE' ? 'VALIDATION_FAILED' : (code ?? 'VALIDATION_FAILED'),
     };
     await writeRunManifest(join(manifestDir, `${runId}.json`), manifest);
-    if (/^Invalid finance timezone:/u.test(cause?.message ?? '')) throw new Error(cause.message, { cause });
-    if (errorCode === 'EMPTY_BATCH_REGRESSION') throw new Error('Unexpected empty batch regression', { cause });
-    throw new Error(errorCode ? 'Actual import failed' : 'Import validation failed', { cause });
+    if (code === 'INVALID_TIMEZONE') throw cause;
+    if (code === 'EMPTY_BATCH_REGRESSION') throw cause;
+    throw new Error(code === 'ACTUAL_IMPORT_FAILED' ? 'Actual import failed' : 'Import validation failed', { cause });
   }
 }
 

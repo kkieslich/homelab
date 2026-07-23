@@ -48,6 +48,13 @@ test('rejects an unexpectedly empty batch', () => {
   assert.throws(() => validateBatch([], { previousCount: 1 }), /empty batch/i);
 });
 
+test('an unexpectedly empty batch error carries a typed code', () => {
+  assert.throws(() => validateBatch([], { previousCount: 1 }), (error) => {
+    assert.equal(error.code, 'EMPTY_BATCH');
+    return true;
+  });
+});
+
 test('allows an empty first batch and returns the result contract', () => {
   assert.deepEqual(validateBatch([], { previousCount: 0 }), {
     records: [],

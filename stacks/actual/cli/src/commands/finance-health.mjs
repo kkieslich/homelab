@@ -48,7 +48,6 @@ export function financeHealth({ dbPath, now = new Date() }) {
       evaluated_at: now.toISOString(),
       finance_trust: financeTrust,
       accounts,
-      gates: financeTrust,
       evidence: {
         review_queue: db.prepare('SELECT COUNT(*) FROM review_queue').pluck().get(),
         duplicate_candidates: db.prepare("SELECT COUNT(*) FROM data_quality WHERE kind='duplicate_candidate' AND resolved=0").pluck().get(),

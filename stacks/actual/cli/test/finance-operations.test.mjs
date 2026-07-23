@@ -59,7 +59,6 @@ test('finance health reports account-grain attempts, coverage, gates, and trust 
   assert.equal(report.accounts[0].latest_valid_success.requested_to, today);
   assert.equal(report.accounts[0].status, 'current');
   assert.ok(report.finance_trust.reasons.includes('unresolved_duplicate_candidate'));
-  assert.deepEqual(report.gates, report.finance_trust);
   assert.equal(report.evidence.duplicate_candidates, 1);
   assert.equal(report.evidence.review_queue, 1);
   assert.equal(fs.statSync(dbPath).mtimeMs, before);
@@ -131,7 +130,6 @@ test('finance health gate summary is exactly the canonical trust view', async ()
   db.prepare("INSERT INTO pipeline_runs (run_id,source,finished_at,quarantined,outcome,resolved) VALUES ('other','unexpected',datetime('now'),2,'failed',0)").run();
   db.close();
   const report = financeHealth({ dbPath, now });
-  assert.deepEqual(report.gates, report.finance_trust);
   assert.equal(report.finance_trust.trusted, true);
   assert.equal(report.evidence.reconciliation.length, 0);
   assert.equal(report.evidence.quarantine.length, 0);
@@ -140,6 +138,6 @@ test('finance health gate summary is exactly the canonical trust view', async ()
   write.prepare("UPDATE pipeline_run_accounts SET quarantined=1 WHERE run_id='r'").run();
   write.close();
   const blocked = financeHealth({ dbPath, now });
-  assert.ok(blocked.gates.reasons.includes('unresolved_quarantine'));
+  assert.ok(blocked.finance_trust.reasons.includes('unresolved_quarantine'));
   assert.equal(blocked.evidence.quarantine.length, 1);
 });
