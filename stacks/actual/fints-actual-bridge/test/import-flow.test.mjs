@@ -650,14 +650,20 @@ test('identical booked weak-reference rows are disambiguated and both import suc
   assert.equal(ids[1], `${ids[0]}~2`);
 });
 
-test('re-running an identical duplicate weak-reference payload assigns the same ids idempotently', async () => {
-  const duplicatePayload = structuredClone(payload);
+test('re-fetching duplicate weak references in a different order assigns the same id multiset idempotently', async () => {
   const weak = { ...transaction, imported_id: 'STARTUMS', status: 'BOOK' };
-  duplicatePayload.accounts[0].transactions = [weak, structuredClone(weak)];
+  const distinct = { ...weak, notes: 'OTHER PRIVATE NOTE' };
+  const payloadWithOrder = (transactions) => {
+    const ordered = structuredClone(payload);
+    ordered.accounts[0].transactions = structuredClone(transactions);
+    return ordered;
+  };
   const store = new Map();
+  const idsByRun = [];
   const actualApi = {
     async getTransactions() { return [...store.values()]; },
     async importTransactions(_account, records) {
+      idsByRun.push(records.map((record) => record.imported_id));
       const added = [];
       const updated = [];
       for (const record of records) {
@@ -668,19 +674,24 @@ test('re-running an identical duplicate weak-reference payload assigns the same 
       return { added, updated };
     },
   };
+  // Run 1: the duplicate pair sits at positions 0 and 1. Run 2 re-fetches
+  // the same three transactions with the pair shifted to positions 1 and 2.
+  // Position-dependent suffixing would mint different ids on run 2.
   const first = await runImport({
-    payload: structuredClone(duplicatePayload), config, registry, actualApi,
+    payload: payloadWithOrder([weak, weak, distinct]), config, registry, actualApi,
     manifestDir: await mkdtemp(join(tmpdir(), 'import-flow-')),
   });
-  assert.equal(first.accounts[0].added, 2);
+  assert.equal(first.accounts[0].added, 3);
   assert.equal(first.accounts[0].updated, 0);
 
   const second = await runImport({
-    payload: structuredClone(duplicatePayload), config, registry, actualApi,
+    payload: payloadWithOrder([distinct, weak, weak]), config, registry, actualApi,
     manifestDir: await mkdtemp(join(tmpdir(), 'import-flow-')),
   });
   assert.equal(second.accounts[0].added, 0);
-  assert.equal(second.accounts[0].updated, 2);
+  assert.equal(second.accounts[0].updated, 3);
+  assert.equal(idsByRun.length, 2);
+  assert.deepEqual([...idsByRun[1]].sort(), [...idsByRun[0]].sort());
 });
 
 test('duplicate strong bank references are never suffixed and still fail closed with zero writes', async () => {
