@@ -32,7 +32,9 @@ function grouped(map, keyName) {
 export function auditTransactions(snapshot, registry) {
   const transactions = snapshot.transactions ?? [];
   const ownerByAccount = new Map(
-    registry.map((entry) => [entry.actual_account_id, entry]),
+    registry
+      .filter((entry) => entry.enabled && entry.source !== 'manual-actual')
+      .map((entry) => [entry.actual_account_id, entry]),
   );
   const importedIds = new Map();
   const fuzzy = new Map();

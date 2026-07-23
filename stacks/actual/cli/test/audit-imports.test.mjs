@@ -74,15 +74,28 @@ test('human output includes group counts and exact transaction IDs', () => {
   assert.match(output, /two/u);
 });
 
-test('audits ID schemes for disabled legacy registry accounts too', () => {
-  const report = auditTransactions({
-    transactions: [transaction('old', { account: 'legacy-account', imported_id: 'raw-bank-id' })],
-  }, [{
-    actual_account_id: 'legacy-account',
-    source: 'legacy-triodos',
-    source_account: 'triodos-giro',
-    enabled: false,
-  }]);
+test('does not flag legacy IDs on disabled manual-actual accounts, but still flags enabled importer accounts', () => {
+  const mixedRegistry = [
+    {
+      actual_account_id: 'm1',
+      source: 'manual-actual',
+      source_account: 'triodos-giro',
+      enabled: false,
+    },
+    {
+      actual_account_id: 'account-1',
+      source: 'fints-umwelt',
+      source_account: 'umwelt-giro',
+      enabled: true,
+    },
+  ];
 
-  assert.equal(report.counts.legacy_id_schemes, 1);
+  const report = auditTransactions({
+    transactions: [
+      transaction('manual', { account: 'm1', imported_id: 'arbitrary-pre-cutover-id' }),
+      transaction('legacy', { imported_id: 'old-unscoped-bank-id' }),
+    ],
+  }, mixedRegistry);
+
+  assert.deepEqual(report.legacy_id_schemes.map((t) => t.id), ['legacy']);
 });
