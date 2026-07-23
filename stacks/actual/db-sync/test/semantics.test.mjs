@@ -107,6 +107,36 @@ test('finance trust exposes machine-readable reasons for every trust gate', () =
   db.close();
 });
 
+test('unresolved_quarantine only fires for the latest attempt, not any historical run', () => {
+  const db = projection();
+  db.prepare(`INSERT INTO expected_sources (account_id,source,expected_cadence_seconds) VALUES ('checking','bank',86400)`).run();
+  db.prepare(`INSERT INTO pipeline_runs
+    (run_id,source,finished_at,requested_from,requested_to,outcome,quarantined,resolved) VALUES
+    ('old','bank',datetime('now','-2 hours'),'2026-07-01','2026-07-17','success',1,0),
+    ('new','bank',datetime('now','-1 hour'),'2026-07-01','2026-07-18','success',0,1)`).run();
+  db.prepare(`INSERT INTO pipeline_run_accounts
+    (run_id,account_id,source,requested_from,requested_to,outcome,quarantined) VALUES
+    ('old','checking','bank','2026-07-01','2026-07-17','success',1),
+    ('new','checking','bank','2026-07-01','2026-07-18','success',0)`).run();
+  const reasons = JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get());
+  assert.ok(!reasons.includes('unresolved_quarantine'), reasons);
+  db.close();
+});
+
+test('a preserved resolution keeps a quarantined latest run out of unresolved_quarantine', () => {
+  const db = projection();
+  db.prepare(`INSERT INTO expected_sources (account_id,source,expected_cadence_seconds) VALUES ('checking','bank',86400)`).run();
+  db.prepare(`INSERT INTO pipeline_runs
+    (run_id,source,finished_at,requested_from,requested_to,outcome,quarantined,resolved) VALUES
+    ('resolved-run','bank',datetime('now'),'2026-07-01','2026-07-18','success',1,1)`).run();
+  db.prepare(`INSERT INTO pipeline_run_accounts
+    (run_id,account_id,source,requested_from,requested_to,outcome,quarantined) VALUES
+    ('resolved-run','checking','bank','2026-07-01','2026-07-18','success',1)`).run();
+  const reasons = JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get());
+  assert.ok(!reasons.includes('unresolved_quarantine'), reasons);
+  db.close();
+});
+
 test('late projection failure leaves previous schema, rows, and views unchanged', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'actual-semantics-'));
   const dbPath = path.join(dir, 'actual.sqlite');
@@ -218,6 +248,39 @@ test('routine sync replaces current budget state without touching immutable mont
   assert.equal(db.prepare("SELECT COUNT(*) FROM expected_sources WHERE source='manual-actual'").pluck().get(), 0);
   assert.equal(db.prepare('SELECT COUNT(*) FROM budget_snapshots').pluck().get(), 1);
   assert.equal(db.prepare('SELECT COUNT(*) FROM net_worth_snapshots').pluck().get(), 1);
+  db.close();
+});
+
+test('sync preserves a manually resolved pipeline run across subsequent cycles', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'actual-resolution-'));
+  const manifests = path.join(dir, 'runs');
+  fs.mkdirSync(manifests);
+  fs.writeFileSync(path.join(manifests, 'run.json'), JSON.stringify({
+    schema_version: 1, run_id: 'quarantined-run', source: 'fints-bank', importer_version: '2',
+    started_at: '2026-07-18T09:00:00Z', finished_at: '2026-07-18T09:01:00Z',
+    requested_range: { from: '2026-07-01', to: '2026-07-18' }, outcome: 'success', error_code: null,
+    accounts: [{ actual_account_id: 'checking', fetched: 2, valid: 1, added: 1, updated: 0, quarantined: 1 }],
+  }));
+  const registryPath = path.join(dir, 'accounts.json');
+  fs.writeFileSync(registryPath, JSON.stringify([
+    { actual_account_id: 'checking', source: 'fints-bank', enabled: true, expected_cadence_seconds: 86400 },
+  ]));
+  const snapshot = {
+    accounts: [{ id: 'checking', name: 'Checking', offbudget: false, closed: false }],
+    categoryGroups: [], categories: [], payees: [], transactions: [], balances: { checking: 0 },
+    budgetMonths: [],
+  };
+  const dbPath = path.join(dir, 'actual.sqlite');
+  await syncToSqlite(dbPath, null, null, manifests, registryPath, { snapshot, now: new Date('2026-07-18T10:00:00Z') });
+  let db = new Database(dbPath);
+  assert.equal(db.prepare('SELECT resolved FROM pipeline_runs WHERE run_id=?').pluck().get('quarantined-run'), 0);
+  db.prepare('UPDATE pipeline_runs SET resolved=1 WHERE run_id=?').run('quarantined-run');
+  db.close();
+
+  await syncToSqlite(dbPath, null, null, manifests, registryPath, { snapshot, now: new Date('2026-07-18T10:05:00Z') });
+  db = new Database(dbPath, { readonly: true });
+  assert.equal(db.prepare('SELECT resolved FROM pipeline_runs WHERE run_id=?').pluck().get('quarantined-run'), 1);
+  assert.equal(db.prepare('SELECT quarantined FROM pipeline_runs WHERE run_id=?').pluck().get('quarantined-run'), 1);
   db.close();
 });
 

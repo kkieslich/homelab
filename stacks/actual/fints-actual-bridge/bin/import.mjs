@@ -284,7 +284,7 @@ export async function runImport({
           summary.empty_batch = evidence.previouslyObservedEmpty ? 'previously_observed_empty' : 'first_observed';
         }
         summary.valid = validated.records.length;
-        summary.quarantined += validated.duplicateCandidates.length;
+        summary.duplicate_candidates = validated.duplicateCandidates.length;
         batches.push({ bankKey, actualAccountId: mapping.actual_account_id, records: validated.records, items, summary });
         recordsByActualId.set(mapping.actual_account_id,
           (recordsByActualId.get(mapping.actual_account_id) ?? []).concat(validated.records));

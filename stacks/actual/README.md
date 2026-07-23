@@ -310,6 +310,18 @@ decision; a generic note is not a substitute.
    transactions before restoring normal operation.
 7. For corruption or an unsafe migration, use the verified backup and restore
    runbook. Never delete production volumes in place.
+8. After investigating a quarantined run and confirming the withheld records
+   are safe, resolve it inside `actual_db_sync`:
+
+   ```sh
+   sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs pipeline-resolution \
+     --snapshot=/db/actual.sqlite --run-id=<id> --note="..." --reviewer=kolja \
+     --resolved-at=<UTC ISO> --apply
+   ```
+
+   This is dry-run by default; only `--apply` writes. The resolution survives
+   subsequent `db-sync` cycles — sync preserves a manually resolved run instead
+   of recomputing it from the immutable manifest.
 
 ## Cutover acceptance gate
 

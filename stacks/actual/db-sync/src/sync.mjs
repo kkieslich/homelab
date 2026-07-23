@@ -273,6 +273,9 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
   const priorQualityResolutions = new Map(db.prepare(
     "SELECT check_id,resolved FROM data_quality WHERE producer='db-sync'",
   ).all().map((row) => [row.check_id, row.resolved]));
+  const priorRunResolutions = new Map(db.prepare(
+    'SELECT run_id,resolved FROM pipeline_runs WHERE resolved=1',
+  ).all().map((row) => [row.run_id, row.resolved]));
 
   {
     // holdings_history is intentionally NOT deleted — it's append-only.
@@ -462,7 +465,7 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         manifest.importer_version ?? null, totals.fetched, totals.valid, totals.added, totals.updated,
         totals.quarantined, manifest.outcome, manifest.error_code ?? null,
         expectedSources.find((source) => source.source === manifest.source)?.expected_cadence_seconds ?? null,
-        totals.quarantined === 0 ? 1 : 0,
+        priorRunResolutions.get(manifest.run_id) === 1 ? 1 : (totals.quarantined === 0 ? 1 : 0),
       );
       for (const account of manifest.accounts ?? []) {
         const expected = expectedSources.find((source) => source.account_id === account.actual_account_id);

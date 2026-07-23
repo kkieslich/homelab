@@ -230,6 +230,14 @@ CREATE TABLE IF NOT EXISTS duplicate_resolution_audit (
   resolved_at      TEXT NOT NULL CHECK (length(trim(resolved_at)) > 0 AND resolved_at GLOB '????-??-??T??:??:??*Z')
 );
 
+CREATE TABLE IF NOT EXISTS pipeline_resolution_audit (
+  run_id      TEXT NOT NULL,
+  resolved_at TEXT NOT NULL,
+  reviewer    TEXT NOT NULL,
+  note        TEXT NOT NULL,
+  PRIMARY KEY (run_id, resolved_at)
+);
+
 -- Securities holdings (current snapshot, drop+re-insert each db-sync cycle).
 -- Populated from holdings.json that fints-actual-bridge writes on import for
 -- depot accounts (currently only finanzen-zero / Baader Bank).
@@ -378,7 +386,7 @@ WITH ranked_attempts AS (
    JOIN accounts account ON account.id = quality.account_id AND account.closed = 0
    WHERE quality.kind = 'reconciliation_gap' AND quality.resolved = 0
      AND COALESCE(quality.value_cents, 0) != 0
-  UNION SELECT 'unresolved_quarantine' FROM pipeline_run_accounts a
+  UNION SELECT 'unresolved_quarantine' FROM latest_attempts a
    JOIN pipeline_runs p ON p.run_id=a.run_id
    JOIN expected_sources e ON e.account_id=a.account_id AND e.source=a.source
    WHERE a.quarantined > 0 AND p.resolved = 0

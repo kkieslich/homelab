@@ -60,8 +60,36 @@ test('imports a validated canonical batch with deleted-record protection', async
   assert.equal(manifest.outcome, 'success');
   assert.deepEqual(manifest.accounts, [{
     actual_account_id: 'actual-account-1', fetched: 1, valid: 1,
-    added: 1, updated: 0, quarantined: 0, outcome: 'success',
+    added: 1, updated: 0, quarantined: 0, duplicate_candidates: 0, outcome: 'success',
   }]);
+});
+
+test('fuzzy duplicate candidates are imported, not quarantined, and counted informationally', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const duplicatePayload = structuredClone(payload);
+  duplicatePayload.accounts[0].transactions = [
+    { ...transaction, imported_id: 'bank-id-1' },
+    { ...transaction, imported_id: 'bank-id-2' },
+  ];
+  const calls = [];
+  const fakeActual = {
+    async importTransactions(...args) {
+      calls.push(args);
+      return { added: ['one', 'two'], updated: [] };
+    },
+  };
+
+  await runImport({
+    payload: duplicatePayload, config, registry, actualApi: fakeActual, manifestDir, dryRun: false,
+    now: () => new Date('2026-07-18T10:00:00.000Z'),
+  });
+
+  assert.equal(calls[0][1].length, 2);
+  const [manifest] = await manifestsIn(manifestDir);
+  assert.equal(manifest.accounts[0].quarantined, 0);
+  assert.equal(manifest.accounts[0].duplicate_candidates, 1);
+  assert.equal(manifest.accounts[0].valid, 2);
+  assert.equal(manifest.accounts[0].added, 2);
 });
 
 test('rejects and sanitizes invalid explicit requested range strings', async () => {
