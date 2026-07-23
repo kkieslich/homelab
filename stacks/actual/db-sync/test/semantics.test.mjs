@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -663,6 +664,55 @@ test('sync persists authoritative schedules and deterministic duplicate candidat
   db = new Database(dbPath, { readonly: true });
   assert.equal(db.prepare('SELECT complete FROM schedule_projection').pluck().get(), 0);
   db.close();
+});
+
+test('duplicate_candidate check_id is byte-stable against the pre-refactor inline key construction', async () => {
+  // Oracle: the inline construction sync.mjs used before Task 17 introduced
+  // the shared duplicateCandidateKey() builder in text.mjs. Live data_quality
+  // rows persist check_id long-term (operators resolve them); if the shared
+  // builder ever drifts from this byte-for-byte, every prior resolution is
+  // silently orphaned. Do not "clean up" this oracle to use the new helper.
+  function oldInlineCheckId({ accountId, date, amountCents, normalizedPayee, transactionIds }) {
+    const key = JSON.stringify({
+      account_id: accountId, date, amount_cents: amountCents, normalized_payee: normalizedPayee,
+    });
+    const identity = {
+      ...JSON.parse(key), transaction_ids: transactionIds.slice().sort(), classification: 'fuzzy_review_only',
+    };
+    const detail = JSON.stringify(identity);
+    return `duplicate_candidate:${createHash('sha256').update(detail).digest('hex').slice(0, 24)}`;
+  }
+
+  const dir = await mkdtemp(path.join(tmpdir(), 'actual-hash-stability-'));
+  const dbPath = path.join(dir, 'actual.sqlite');
+  const baseTx = { date: '2026-07-19', account: 'checking', amount: -500, category: 'fun', cleared: true };
+  const snapshot = {
+    accounts: [{ id: 'checking', name: 'Checking', offbudget: false, closed: false }],
+    categoryGroups: [{ id: 'd', name: 'Discretionary', hidden: false }],
+    categories: [{ id: 'fun', name: 'Fun', group_id: 'd', is_income: false }],
+    payees: [{ id: 'shop', name: '  Corner   Shop ' }], balances: { checking: -1000 }, budgetMonths: [],
+    schedules: [], schedulesFetchedAt: '2026-07-19T10:00:00Z',
+    transactions: [
+      { ...baseTx, id: 'hash-a', payee: 'shop', imported_id: 'bank:hash-a' },
+      { ...baseTx, id: 'hash-b', payee: 'shop', imported_id: 'bank:hash-b' },
+    ],
+  };
+  await syncToSqlite(dbPath, null, null, null, null, { snapshot, expectedSources: [], now: new Date('2026-07-19T10:00:00Z') });
+  const db = new Database(dbPath, { readonly: true });
+  const candidate = db.prepare("SELECT * FROM data_quality WHERE kind='duplicate_candidate'").get();
+  db.close();
+
+  const expectedCheckId = oldInlineCheckId({
+    accountId: 'checking', date: '2026-07-19', amountCents: -500,
+    normalizedPayee: 'corner shop', transactionIds: ['hash-a', 'hash-b'],
+  });
+  assert.equal(candidate.check_id, expectedCheckId);
+  // Pinned literal so a future edit to the oracle above (or to normalizeText)
+  // cannot silently drag both sides of the comparison in lockstep.
+  assert.equal(candidate.check_id, 'duplicate_candidate:' + createHash('sha256').update(JSON.stringify({
+    account_id: 'checking', date: '2026-07-19', amount_cents: -500, normalized_payee: 'corner shop',
+    transaction_ids: ['hash-a', 'hash-b'], classification: 'fuzzy_review_only',
+  })).digest('hex').slice(0, 24));
 });
 
 test('projection uses DELETE journal and remains readable through a read-only connection', async () => {

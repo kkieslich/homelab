@@ -2,7 +2,9 @@ import fs from 'node:fs';
 
 import { parseArgs } from '../lib/args.mjs';
 import { withActual } from '../lib/client.mjs';
-import { normalizeText as normalize, isIsoDay } from '../../../fints-actual-bridge/src/importer/text.mjs';
+import {
+  duplicateCandidateKey, normalizeText as normalize, isIsoDay,
+} from '../../../fints-actual-bridge/src/importer/text.mjs';
 
 const REGISTRY_URL = new URL('../../config/accounts.json', import.meta.url);
 
@@ -54,9 +56,11 @@ export function auditTransactions(snapshot, registry) {
       if (canonicalPrefix && !importedId.startsWith(canonicalPrefix)) legacy.push(publicTransaction(transaction));
     }
 
-    const payeeIdentity = normalize(transaction.imported_payee) || normalize(transaction.payee);
-    if (payeeIdentity) {
-      const fuzzyKey = [transaction.account, transaction.date, transaction.amount, payeeIdentity].join('\u0000');
+    const payeeIdentity = transaction.imported_payee || transaction.payee;
+    if (normalize(payeeIdentity)) {
+      const fuzzyKey = duplicateCandidateKey({
+        accountId: transaction.account, date: transaction.date, amountCents: transaction.amount, payeeIdentity,
+      });
       const candidates = fuzzy.get(fuzzyKey) ?? [];
       candidates.push(transaction);
       fuzzy.set(fuzzyKey, candidates);

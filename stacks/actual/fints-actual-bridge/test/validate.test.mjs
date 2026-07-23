@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { validateBatch } from '../src/importer/validate.mjs';
+import { duplicateCandidateKey } from '../src/importer/text.mjs';
 
 test('rejects duplicate imported IDs', () => {
   assert.throws(() => validateBatch([
@@ -20,7 +21,9 @@ test('reports distinct same-day purchases as a fuzzy duplicate candidate without
 
   assert.equal(result.records.length, 2);
   assert.equal(result.duplicateCandidates.length, 1);
-  assert.equal(result.duplicateCandidates[0].key, '2026-07-01|-1000|shop');
+  assert.equal(result.duplicateCandidates[0].key, duplicateCandidateKey({
+    date: '2026-07-01', amountCents: -1000, payeeIdentity: 'shop',
+  }));
   assert.equal(result.duplicateCandidates[0].records.length, 2);
 });
 

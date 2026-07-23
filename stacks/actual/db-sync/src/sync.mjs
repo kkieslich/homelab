@@ -11,7 +11,7 @@ import * as api from '@actual-app/api';
 import Database from 'better-sqlite3';
 import { detectSubscriptions } from '../../cli/src/commands/subs.mjs';
 import { readRunManifests } from '../../fints-actual-bridge/src/importer/manifest.mjs';
-import { isIsoDay, normalizeText } from '../../fints-actual-bridge/src/importer/text.mjs';
+import { duplicateCandidateKey, isIsoDay, isSyntheticImportedId } from '../../fints-actual-bridge/src/importer/text.mjs';
 import { deriveCategoryRole, validateCategoryGroups } from './semantics.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -130,15 +130,15 @@ function validSourceInstant(value, now) {
   return Number.isFinite(parsed.getTime()) && parsed.getTime() <= now.getTime() + 5 * 60 * 1000;
 }
 
-const normalizedPayee = normalizeText;
-
 function duplicateCandidates(transactions, payeeNameById, checkedAt) {
   const groups = new Map();
   for (const transaction of transactions) {
     if (transaction.transfer_id || transaction.amount >= 0) continue;
-    if (/^fints-bridge-(opening-balance|depot-revaluation)-/u.test(transaction.imported_id ?? '')) continue;
-    const key = JSON.stringify({ account_id: transaction.account, date: transaction.date,
-      amount_cents: transaction.amount, normalized_payee: normalizedPayee(payeeNameById.get(transaction.payee)) });
+    if (isSyntheticImportedId(transaction.imported_id)) continue;
+    const key = duplicateCandidateKey({
+      accountId: transaction.account, date: transaction.date,
+      amountCents: transaction.amount, payeeIdentity: payeeNameById.get(transaction.payee),
+    });
     const group = groups.get(key) ?? [];
     group.push(transaction.id);
     groups.set(key, group);

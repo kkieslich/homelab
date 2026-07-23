@@ -302,6 +302,7 @@ SELECT * FROM transactions
 WHERE account_offbudget = 0
   AND transfer_id IS NULL
   AND category_role IN ('fixed', 'essential', 'discretionary', 'sinking_fund')
+  -- Prefixes mirror SYNTHETIC_IMPORT_PREFIXES in fints-actual-bridge/src/importer/text.mjs.
   AND COALESCE(imported_id, '') NOT LIKE 'fints-bridge-opening-balance-%'
   AND COALESCE(imported_id, '') NOT LIKE 'fints-bridge-depot-revaluation-%';
 
@@ -312,6 +313,7 @@ WHERE account_offbudget = 0
   AND transfer_id IS NULL
   AND amount_cents > 0
   AND category_role = 'income'
+  -- Prefix mirrors SYNTHETIC_IMPORT_PREFIXES in fints-actual-bridge/src/importer/text.mjs.
   AND COALESCE(imported_id, '') NOT LIKE 'fints-bridge-opening-balance-%';
 
 DROP VIEW IF EXISTS savings_contributions;
@@ -331,6 +333,7 @@ SELECT * FROM transactions
 WHERE account_offbudget = 0
   AND transfer_id IS NULL
   AND (category_id IS NULL OR payee_name IS NULL OR trim(payee_name) = '')
+  -- Prefix mirrors SYNTHETIC_IMPORT_PREFIXES in fints-actual-bridge/src/importer/text.mjs.
   AND COALESCE(imported_id, '') NOT LIKE 'fints-bridge-opening-balance-%';
 
 DROP VIEW IF EXISTS finance_trust;

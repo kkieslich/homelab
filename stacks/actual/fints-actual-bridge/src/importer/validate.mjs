@@ -1,4 +1,4 @@
-import { isIsoDay, normalizeText } from './text.mjs';
+import { duplicateCandidateKey, isIsoDay } from './text.mjs';
 
 export function validateBatch(records, { previousCount } = {}) {
   if (!Array.isArray(records)) throw new TypeError('records must be an array');
@@ -23,7 +23,9 @@ export function validateBatch(records, { previousCount } = {}) {
     if (!isIsoDay(record.date)) throw new Error(`record ${index}: invalid ISO date`);
     if (!Number.isInteger(record.amount)) throw new Error(`record ${index}: amount must be an integer`);
 
-    const fuzzyKey = `${record.date}|${record.amount}|${normalizeText(record.imported_payee)}`;
+    const fuzzyKey = duplicateCandidateKey({
+      date: record.date, amountCents: record.amount, payeeIdentity: record.imported_payee,
+    });
     const group = fuzzyGroups.get(fuzzyKey) ?? [];
     group.push(record);
     fuzzyGroups.set(fuzzyKey, group);
