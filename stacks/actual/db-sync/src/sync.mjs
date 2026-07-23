@@ -24,6 +24,18 @@ export function capturedDay(value, timeZone = process.env.ACTUAL_TIMEZONE ?? 'Eu
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+// Only the live month and the month being closed are consumed downstream
+// (current_budgets readers filter to the current month; month-close reads
+// an explicitly-passed month that must already be closed). Closed history
+// beyond that is preserved in budget_snapshots at month-close, so there is
+// no need to keep re-fetching every budget month since Actual's inception.
+export function wantedBudgetMonths(now = new Date()) {
+  const currentMonth = capturedDay(now).slice(0, 7);
+  const previousStart = new Date(`${currentMonth}-01T00:00:00Z`);
+  previousStart.setUTCMonth(previousStart.getUTCMonth() - 1);
+  return [currentMonth, previousStart.toISOString().slice(0, 7)];
+}
+
 export async function buildSnapshot() {
   const accounts = await api.getAccounts();
   const metadataResult = await api.aqlQuery(api.q('accounts').select(['id', 'last_reconciled']));
@@ -47,7 +59,10 @@ export async function buildSnapshot() {
     balanceAsOf[acct.id] = cutoffDay;
   }
   const budgetMonths = [];
-  for (const month of await api.getBudgetMonths()) budgetMonths.push(await api.getBudgetMonth(month));
+  const wantedMonths = new Set(wantedBudgetMonths());
+  for (const month of (await api.getBudgetMonths()).filter((m) => wantedMonths.has(m))) {
+    budgetMonths.push(await api.getBudgetMonth(month));
+  }
   const schedules = await api.getSchedules();
   return {
     accounts, categoryGroups, categories, payees, transactions, balances, balanceAsOf, budgetMonths, schedules,

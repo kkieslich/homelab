@@ -110,6 +110,10 @@ including today.
 
 ## 5. Preview and capture immutable snapshots
 
+Run the close during the following month — `current_budgets` only carries the
+current and previous Actual months. To close an older month, temporarily
+widen `wantedBudgetMonths` in `db-sync/src/sync.mjs`.
+
 The CLI is dry-run by default. From a local terminal, connect to the server and
 run it in the existing projection container; inspect the reported row counts:
 
