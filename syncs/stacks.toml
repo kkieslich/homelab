@@ -117,8 +117,12 @@ run_directory = "stacks/actual"
 file_paths = ["docker-compose.yml"]
 poll_for_updates = true
 auto_update = true
-# actual_db_sync is built from this repository and has no remote registry
-# digest. Git reconciliation rebuilds it when its source changes.
+# The fints images and actual_db_sync are built from this repository and have
+# no remote registry digest. run_build makes every deploy run `docker compose
+# build` first (a layer-cache no-op when sources are unchanged), so a git push
+# that changes importer/db-sync source rebuilds and rolls out without the
+# manual SSH rebuild step.
+run_build = true
 auto_update_skip_services = ["actual_db_sync"]
 # Decrypt the env secret (enc.env -> .env) and the fints banks config
 # (banks.toml.enc -> banks.toml) with the host age key just before compose runs.
@@ -177,7 +181,8 @@ command = '''set -eu; K=/var/lib/komodo-periphery/age-key.txt; R=.registry.env; 
 # server (host network, :8927) and plays to the couch PipeWire HDMI sink → Denon.
 # Replaces the NixOS sendspin-go service, whose Go client deadlocked during
 # playback (blocking channel sends in its websocket read-loop). No image poll
-# (local build); no secrets.
+# (local build); no secrets. run_build rebuilds the local image on deploy
+# (layer-cache no-op unless the Dockerfile/source changed).
 [[stack]]
 name = "sendspin"
 deploy = true
@@ -189,3 +194,4 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/sendspin"
 file_paths = ["docker-compose.yml"]
+run_build = true
