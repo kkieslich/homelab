@@ -6,6 +6,11 @@ name: "actual"
 x-fints-base: &fints-base
   build:
     context: ./fints-actual-bridge
+  # One shared tag for every fints service. `docker compose build` skips
+  # profile-gated services (fints_sync_umwelt), so without a shared tag the
+  # manual Umwelt job would keep running a stale image after run_build deploys
+  # rebuild the daemon. With it, the daemon's rebuild IS the umwelt refresh.
+  image: actual-fints-bridge:local
   restart: unless-stopped
   env_file:
     # Decrypted from enc.env by the Komodo pre_deploy step (see syncs/stacks.toml).
