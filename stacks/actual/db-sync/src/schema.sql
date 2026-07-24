@@ -233,9 +233,9 @@ CREATE TABLE IF NOT EXISTS duplicate_resolution_audit (
 
 CREATE TABLE IF NOT EXISTS pipeline_resolution_audit (
   run_id      TEXT NOT NULL,
-  resolved_at TEXT NOT NULL,
-  reviewer    TEXT NOT NULL,
-  note        TEXT NOT NULL,
+  resolved_at TEXT NOT NULL CHECK (length(trim(resolved_at)) > 0 AND resolved_at GLOB '????-??-??T??:??:??*Z'),
+  reviewer    TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
+  note        TEXT NOT NULL CHECK (length(trim(note)) > 0),
   PRIMARY KEY (run_id, resolved_at)
 );
 

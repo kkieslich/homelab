@@ -56,6 +56,24 @@ test('pipeline resolution is dry-run by default, transactional, idempotent, and 
   assert.throws(() => resolvePipelineRun({ ...input, runId: 'missing', apply: true }), /No pipeline run/i);
 });
 
+test('pipeline resolution requires an existing snapshot file and stores trimmed audit text', async () => {
+  const { dbPath, nowIso } = await fixture();
+  const input = { dbPath, runId: 'r', note: 'note', reviewer: 'kolja', resolvedAt: nowIso };
+
+  const missingPath = path.join(path.dirname(dbPath), 'does-not-exist.sqlite');
+  assert.throws(() => resolvePipelineRun({ ...input, dbPath: missingPath, apply: true }));
+  assert.equal(fs.existsSync(missingPath), false);
+
+  const applied = resolvePipelineRun({ ...input, note: '  padded note  ', reviewer: '  kolja  ', apply: true });
+  assert.equal(applied.applied, true);
+  const db = new Database(dbPath);
+  assert.deepEqual(
+    db.prepare('SELECT reviewer,note FROM pipeline_resolution_audit').get(),
+    { reviewer: 'kolja', note: 'padded note' },
+  );
+  db.close();
+});
+
 test('pipeline resolution requires a snapshot path, run id, note, reviewer, and UTC resolved-at', async () => {
   const { dbPath, nowIso } = await fixture();
   const input = { dbPath, runId: 'r', note: 'note', reviewer: 'kolja', resolvedAt: nowIso };

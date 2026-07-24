@@ -194,6 +194,26 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
   // briefly block during our transaction (~2-3s every 5 min). Acceptable.
   db.pragma('journal_mode = DELETE');
   db.pragma('synchronous = NORMAL');
+  // Manifest IO happens before the write transaction so filesystem reads and
+  // JSON parsing never extend the DELETE-journal write lock that briefly
+  // blocks Grafana readers. Already-ingested runs are durable in pipeline_runs
+  // (the table is never dropped below): manifests written as <run_id>.json are
+  // skipped by filename without being opened; a file whose name doesn't match
+  // its run_id is still parsed once, then dropped by the post-parse run_id
+  // check. On a fresh replica the table doesn't exist yet, so guard the reads
+  // and treat every manifest as new.
+  const hasPipelineRuns = db.prepare(
+    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='pipeline_runs'",
+  ).pluck().get() > 0;
+  const knownRunIds = new Set(
+    hasPipelineRuns ? db.prepare('SELECT run_id FROM pipeline_runs').pluck().all() : [],
+  );
+  const priorRunResolutions = new Map(hasPipelineRuns ? db.prepare(
+    'SELECT run_id,resolved FROM pipeline_runs WHERE resolved=1',
+  ).all().map((row) => [row.run_id, row.resolved]) : []);
+  const manifests = effectiveManifestDir
+    ? await readRunManifests(effectiveManifestDir, { skipRunIds: knownRunIds })
+    : [];
   let counts;
   try {
     db.exec('BEGIN IMMEDIATE');
@@ -273,17 +293,6 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
   const priorQualityResolutions = new Map(db.prepare(
     "SELECT check_id,resolved FROM data_quality WHERE producer='db-sync'",
   ).all().map((row) => [row.check_id, row.resolved]));
-  const priorRunResolutions = new Map(db.prepare(
-    'SELECT run_id,resolved FROM pipeline_runs WHERE resolved=1',
-  ).all().map((row) => [row.run_id, row.resolved]));
-  // Already-ingested runs are durable in pipeline_runs (the table is never
-  // dropped below), so their manifest files don't need to be re-read/parsed
-  // every cycle — manifests are transport with 90-day retention; run history
-  // lives on in this projection DB.
-  const knownRunIds = new Set(db.prepare('SELECT run_id FROM pipeline_runs').pluck().all());
-  const manifests = effectiveManifestDir
-    ? await readRunManifests(effectiveManifestDir, { skipRunIds: knownRunIds })
-    : [];
 
   {
     // holdings_history is intentionally NOT deleted — it's append-only.

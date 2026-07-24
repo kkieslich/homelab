@@ -122,11 +122,14 @@ console.log(JSON.stringify({
   error_code: value.error_code,
   accounts: (value.accounts ?? []).map(account => ({
     actual_account_id: account.actual_account_id,
+    outcome: account.outcome,
     fetched: account.fetched,
     valid: account.valid,
     added: account.added,
     updated: account.updated,
     quarantined: account.quarantined,
+    duplicate_candidates: account.duplicate_candidates,
+    pending_excluded: account.pending_excluded,
   })),
 }, null, 2));
 '

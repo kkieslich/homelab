@@ -19,14 +19,18 @@ export async function writeRunManifest(path, manifest) {
 // evidence) and db-sync (pipeline_runs projection). Deliberately strict:
 // schema_version must be exactly 1 and the identity fields must be present,
 // so a corrupt/incomplete/future-schema file is never counted as evidence in
-// either consumer. `skipRunIds` lets a caller avoid re-parsing manifests
-// whose run is already durably recorded elsewhere (e.g. the sync DB).
+// either consumer. `skipRunIds` lets a caller avoid re-reading manifests
+// whose run is already durably recorded elsewhere (e.g. the sync DB): both
+// writers name manifests `${run_id}.json`, so a skipped run's file is
+// filtered by filename without being opened, with a post-parse run_id check
+// as a safety net for files whose name doesn't match their content.
 export async function readRunManifests(directory, { skipRunIds = new Set() } = {}) {
   let names;
   try { names = await fs.readdir(directory); }
   catch (error) { if (error?.code === 'ENOENT') return []; throw error; }
   const manifests = [];
   for (const name of names.filter((name) => name.endsWith('.json')).sort()) {
+    if (skipRunIds.has(name.slice(0, -'.json'.length))) continue;
     let value = null;
     try { value = JSON.parse(await fs.readFile(join(directory, name), 'utf8')); }
     catch { continue; /* corrupt/incomplete file is never evidence */ }

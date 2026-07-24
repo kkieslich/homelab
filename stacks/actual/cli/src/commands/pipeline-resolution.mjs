@@ -5,10 +5,12 @@ import { requireUtcInstant } from '../lib/validation.mjs';
 export function resolvePipelineRun({ dbPath, runId, note, reviewer, resolvedAt, apply = false }) {
   if (!dbPath) throw new Error('A snapshot SQLite path is required');
   if (!String(runId ?? '').trim()) throw new Error('run-id is required');
-  if (!String(note ?? '').trim()) throw new Error('note is required');
-  if (!String(reviewer ?? '').trim()) throw new Error('reviewer is required');
+  const trimmedNote = String(note ?? '').trim();
+  if (!trimmedNote) throw new Error('note is required');
+  const trimmedReviewer = String(reviewer ?? '').trim();
+  if (!trimmedReviewer) throw new Error('reviewer is required');
   requireUtcInstant(resolvedAt, 'resolved-at');
-  const db = new Database(dbPath, { readonly: !apply });
+  const db = new Database(dbPath, { readonly: !apply, fileMustExist: true });
   try {
     const run = db.prepare('SELECT run_id, quarantined, resolved FROM pipeline_runs WHERE run_id=?').get(runId);
     if (!run) throw new Error(`No pipeline run: ${runId}`);
@@ -17,7 +19,7 @@ export function resolvePipelineRun({ dbPath, runId, note, reviewer, resolvedAt, 
     const write = db.transaction(() => {
       db.prepare('UPDATE pipeline_runs SET resolved=1 WHERE run_id=?').run(runId);
       db.prepare('INSERT INTO pipeline_resolution_audit (run_id,resolved_at,reviewer,note) VALUES (?,?,?,?)')
-        .run(runId, resolvedAt, reviewer, note);
+        .run(runId, resolvedAt, trimmedReviewer, trimmedNote);
     });
     write();
     return { run_id: runId, applied: true };

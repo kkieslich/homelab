@@ -50,7 +50,7 @@ async function fixture() {
   return { dbPath, now, today, reviewMonth, reviewDate };
 }
 
-test('finance health reports account-grain attempts, coverage, gates, and trust reasons read-only', async () => {
+test('finance health reports account-grain attempts, coverage, and trust reasons read-only', async () => {
   const { dbPath, now, today } = await fixture();
   const before = fs.statSync(dbPath).mtimeMs;
   const report = financeHealth({ dbPath, now });

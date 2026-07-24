@@ -64,6 +64,18 @@ test('readRunManifests skips run ids present in skipRunIds', async () => {
   assert.deepEqual(manifests.map((m) => m.run_id), ['run-b']);
 });
 
+test('readRunManifests skips <run_id>.json files by filename without opening them', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'manifest-'));
+  // Both writers name manifests `${run_id}.json`. A file whose NAME is in the
+  // skip set must never be opened: give it a valid body with a DIFFERENT,
+  // novel run_id — if the file were read and parsed, that novel run_id would
+  // survive both run_id-based skip checks and appear in the results.
+  await writeFile(join(dir, 'run-skip.json'), JSON.stringify(validManifest('run-novel')));
+  await writeFile(join(dir, 'run-keep.json'), JSON.stringify(validManifest('run-keep')));
+  const manifests = await readRunManifests(dir, { skipRunIds: new Set(['run-skip']) });
+  assert.deepEqual(manifests.map((m) => m.run_id), ['run-keep']);
+});
+
 test('pruneRunManifests returns 0 for a missing directory', async () => {
   const dir = join(await mkdtemp(join(tmpdir(), 'manifest-')), 'does-not-exist');
   assert.equal(await pruneRunManifests(dir), 0);
