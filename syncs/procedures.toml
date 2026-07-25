@@ -79,7 +79,7 @@ tags = ["prod", "um870", "actual", "manual"]
 name = "Run UmweltBank import"
 enabled = true
 executions = [
-  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "fints_sync_umwelt", execution.params.no_tty = true, enabled = true },
+  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "fints_sync_umwelt", enabled = true },
 ]
 
 [[procedure]]
@@ -103,7 +103,7 @@ tags = ["prod", "um870", "actual", "audit", "read-only"]
 name = "Run read-only import audit"
 enabled = true
 executions = [
-  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "actual_db_sync", execution.params.command = ["node", "/app/cli/bin/actual.mjs", "audit-imports", "--json"], execution.params.workdir = "/app/cli", execution.params.no_tty = true, execution.params.no_deps = true, enabled = true },
+  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "actual_db_sync", execution.params.command = ["node", "/app/cli/bin/actual.mjs", "audit-imports", "--json"], execution.params.workdir = "/app/cli", execution.params.no_deps = true, enabled = true },
 ]
 
 [[procedure]]
@@ -115,5 +115,5 @@ tags = ["prod", "um870", "actual", "audit", "read-only"]
 name = "Read finance health"
 enabled = true
 executions = [
-  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "actual_db_sync", execution.params.command = ["node", "/app/cli/bin/actual.mjs", "finance-health", "--snapshot=/db/actual.sqlite", "--json"], execution.params.workdir = "/app/cli", execution.params.no_tty = true, execution.params.no_deps = true, enabled = true },
+  { execution.type = "RunStackService", execution.params.stack = "actual", execution.params.service = "actual_db_sync", execution.params.command = ["node", "/app/cli/bin/actual.mjs", "finance-health", "--snapshot=/db/actual.sqlite", "--json"], execution.params.workdir = "/app/cli", execution.params.no_deps = true, enabled = true },
 ]
