@@ -19,7 +19,11 @@ const CANONICAL = new Set([
   'finance_trust', 'holdings', 'holdings_history', 'pipeline_runs',
   'expected_sources', 'data_quality',
   'safe_to_spend', 'pipeline_run_accounts', 'account_projection', 'budget_projection',
-  'subscriptions',
+  'subscriptions', 'net_worth_monthly',
+  // First-class projection table written by the duplicate-resolution CLI, in the
+  // same class as data_quality and pipeline_runs: it is the only record of WHY a
+  // duplicate pair was accepted, so the dashboard is allowed to read it.
+  'duplicate_resolution_audit',
 ]);
 
 function queries(value, found = []) {
@@ -166,8 +170,13 @@ test('dashboard SQL uses only canonical Task 9-10 relations', () => {
 
 test('financial headline queries are trust-gated or use immutable snapshots', () => {
   const home = JSON.parse(fs.readFileSync(path.join(DASHBOARDS, 'actual-home.json'), 'utf8'));
+  // 'Net worth'/'Liquid' are the live current-balance tiles ('— now'), not the
+  // month-stale close capture they used to be: a headline that only moves when a
+  // month closes was misreporting today's position. They stay in this set — the
+  // rule that a headline must blank out rather than mislead is what matters, and
+  // being live makes trust gating more important, not less.
   const headlineTitles = new Set([
-    'Net worth — close', 'Liquid — close',
+    'Net worth — now', 'Liquid — now',
     'Safe — month', 'Safe — day', 'Savings rate',
   ]);
   const headlines = home.panels.filter(panel => headlineTitles.has(panel.title));
@@ -204,12 +213,16 @@ test('stat titles fit compact Grafana cards', () => {
 
 test('every financial target exposes a query-level freshness field', () => {
   const financialPanels = {
-    'actual-home.json': ['Net worth — close', 'Liquid — close', 'Safe — month', 'Safe — day',
+    'actual-home.json': ['Net worth — now', 'Liquid — now', 'Safe — month', 'Safe — day',
       'Savings rate', 'Current envelope funding and consumption by role'],
+    // 'Annualized irregular-cost funding' was deleted: it filtered
+    // category_role='sinking_fund', a role no transaction has ever carried, so it
+    // could only render 'No Data'. 'Spending by category — last complete month'
+    // replaces it in the same slot and carries the same freshness obligation.
     'actual-monthly.json': ['Income — close', 'Spend — close', 'Savings rate', 'Contributions',
       'Monthly income, consumption, and contributions', 'Consumption mix by canonical role',
       'Month-over-month category drivers', 'Month-over-month merchant drivers',
-      'Consumption and three-month rolling average', 'Annualized irregular-cost funding',
+      'Consumption and three-month rolling average', 'Spending by category — last complete month',
       'Recent unusual consumption'],
     'actual-investments-pipeline.json': ['Contributions', 'Portfolio value', 'Holdings valued',
       'Reported portfolio value over time', 'Current portfolio allocation'],

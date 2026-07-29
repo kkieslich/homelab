@@ -75,7 +75,7 @@ test('canonical views isolate consumption, ordinary income, and investment contr
   const db = projection();
   assert.equal(db.prepare('SELECT SUM(amount_cents) n FROM consumption').get().n, -8000);
   assert.equal(db.prepare('SELECT SUM(amount_cents) n FROM ordinary_income').get().n, 300000);
-  assert.equal(db.prepare('SELECT SUM(amount_cents) n FROM savings_contributions').get().n, 50000);
+  assert.equal(db.prepare('SELECT SUM(contribution_cents) n FROM savings_contributions').get().n, 50000);
   db.close();
 });
 

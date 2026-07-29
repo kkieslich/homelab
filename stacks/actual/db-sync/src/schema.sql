@@ -324,7 +324,12 @@ WHERE account_offbudget = 0
 
 DROP VIEW IF EXISTS savings_contributions;
 CREATE VIEW savings_contributions AS
-SELECT -t.amount_cents AS amount_cents, t.*
+-- contribution_cents is the POSITIVE amount moved into savings; amount_cents
+-- keeps the ledger's own sign (negative = money leaving the budget), matching
+-- every other view. These were previously both called amount_cents, which left
+-- the view exposing one name twice: consumers silently bound to whichever came
+-- first, so a column reorder would have flipped the sign with no error.
+SELECT -t.amount_cents AS contribution_cents, t.*
 FROM transactions t
 JOIN payees p ON p.id = t.payee_id
 JOIN accounts destination ON destination.id = p.transfer_account_id
@@ -332,6 +337,22 @@ WHERE t.account_offbudget = 0
   AND t.amount_cents < 0
   AND t.transfer_id IS NOT NULL
   AND destination.offbudget = 1;
+
+DROP VIEW IF EXISTS net_worth_monthly;
+-- Net worth at the end of each month, as a running total of the whole ledger.
+-- net_worth_snapshots only gains a row when a month is formally closed, so it
+-- cannot draw a trend until several closes exist; this reproduces the same
+-- quantity from the ledger itself and agrees with a close to the cent.
+-- Deliberately spans every account, including transfers, off-budget depots and
+-- closed accounts, because all of them are part of net worth. Depot revaluation
+-- is booked as a transaction, so holdings movement is already included.
+CREATE VIEW net_worth_monthly AS
+SELECT month,
+       (SELECT SUM(earlier.amount_cents) FROM transactions earlier
+         WHERE earlier.month <= boundary.month) AS net_worth_cents,
+       (SELECT MAX(latest.date) FROM transactions latest) AS data_as_of
+FROM (SELECT DISTINCT month FROM transactions) boundary
+ORDER BY month;
 
 DROP VIEW IF EXISTS review_queue;
 CREATE VIEW review_queue AS

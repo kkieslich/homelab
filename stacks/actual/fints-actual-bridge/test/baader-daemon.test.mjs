@@ -34,7 +34,11 @@ test('Baader runs as an interactive persistent daemon with guarded imports', asy
   assert.match(command, /--out(?:=| )\/state\/fnz-fetch\.json/);
   assert.match(command, /--fetch-interval(?:=| )3600/);
   assert.match(command, /--heartbeat-interval(?:=| )180/);
-  assert.match(command, /--days(?:=| )30/);
+  // 90, not 30: the Verrechnungskonto receives ETF distributions only every few
+  // months, and a 30-day rolling window silently missed the ones booked between
+  // fetches — the ledger had drifted EUR 44.54 below the bank since May before
+  // the HKSAL balance check caught it. Imports are idempotent on imported_id.
+  assert.match(command, /--days(?:=| )90/);
   assert.match(command, /--import-after/);
   assert.match(command, /--registry \/app\/accounts\.json/);
   assert.match(command, /--manifest-dir \/state\/import-runs/);
