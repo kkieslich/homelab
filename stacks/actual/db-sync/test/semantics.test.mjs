@@ -639,13 +639,15 @@ test('future reconciliation dates are rejected as reconciliation-required eviden
 // bridge writes it with the same signed-cents convention as Actual's
 // transaction amounts, so Actual's balance on the balance day is simply
 // SUM(amount_cents) WHERE date<=as_of, compared without scaling or negation.
-async function bankBalanceFixture({ bankBalance, name, now = '2026-07-18T10:00:00Z' }) {
+async function bankBalanceFixture({
+  bankBalance, name, now = '2026-07-18T10:00:00Z', finishedAt = '2026-07-18T09:01:00Z',
+}) {
   const dir = await mkdtemp(path.join(tmpdir(), `actual-${name}-`));
   const manifests = path.join(dir, 'runs');
   fs.mkdirSync(manifests);
   fs.writeFileSync(path.join(manifests, 'run.json'), JSON.stringify({
     schema_version: 1, run_id: 'balance-run', source: 'fints-bank', importer_version: '2',
-    started_at: '2026-07-18T09:00:00Z', finished_at: '2026-07-18T09:01:00Z',
+    started_at: '2026-07-18T09:00:00Z', finished_at: finishedAt,
     requested_range: { from: '2026-07-01', to: '2026-07-18' }, outcome: 'success', error_code: null,
     accounts: [{
       actual_account_id: 'checking', fetched: 3, valid: 3, added: 3, updated: 0, quarantined: 0,
@@ -691,6 +693,7 @@ test('a matching bank closing balance is authoritative reconciliation evidence w
   assert.equal(verified.resolved, 1);
   assert.deepEqual(JSON.parse(verified.detail), {
     bank_balance_cents: 7500, actual_balance_cents: 7500, as_of: '2026-07-15',
+    observed_at: '2026-07-18T09:01:00Z',
     basis: 'value_cents = actual_balance_cents - bank_balance_cents',
   });
   const reasons = trustReasons(db);
@@ -713,6 +716,7 @@ test('a bank closing balance that disagrees with Actual emits a signed reconcili
   assert.equal(gap.resolved, 0);
   assert.deepEqual(JSON.parse(gap.detail), {
     bank_balance_cents: 7000, actual_balance_cents: 7500, as_of: '2026-07-15',
+    observed_at: '2026-07-18T09:01:00Z',
     basis: 'value_cents = actual_balance_cents - bank_balance_cents',
   });
   // A gap is not a verification, so the missing UI reconcile still stands.
@@ -741,11 +745,29 @@ test('an absent bank balance leaves the UI reconciliation requirement untouched'
   db.close();
 });
 
-test('a bank balance older than the 35-day reconciliation window is not a verification', async () => {
-  // Exact match (SUM through 2026-06-01 is 4000) but 47 days stale, so it
-  // neither vouches for the account nor counts as a gap.
+test('a dormant account still verifies: old as_of, but the bank confirmed it today', async () => {
+  // HKSAL dates its closing balance at the account's LAST BOOKING, so an
+  // account that has not moved for months reports an old as_of while the
+  // amount is current. Freshness must therefore be judged on when we asked
+  // (the run's finished_at), not on as_of — otherwise any quiet account is
+  // permanently unverifiable. SUM through 2026-06-01 is 4000: an exact match.
   const { dbPath } = await bankBalanceFixture({
-    name: 'bank-stale', bankBalance: { amount_cents: 4000, as_of: '2026-06-01', currency: 'EUR' },
+    name: 'bank-dormant', bankBalance: { amount_cents: 4000, as_of: '2026-06-01', currency: 'EUR' },
+  });
+  const db = new Database(dbPath, { readonly: true });
+  assert.deepEqual(qualityKinds(db), ['reconciliation_bank_verified']);
+  assert.equal(db.prepare("SELECT resolved FROM data_quality WHERE kind='reconciliation_bank_verified'")
+    .pluck().get(), 1);
+  assert.ok(!trustReasons(db).includes('reconciliation_required'));
+  db.close();
+});
+
+test('a bank confirmation obtained longer ago than the 35-day window is not a verification', async () => {
+  // Same exact match, but the last time we actually asked the bank was 48 days
+  // ago, so the evidence has expired: it neither vouches nor counts as a gap.
+  const { dbPath } = await bankBalanceFixture({
+    name: 'bank-stale-observation', finishedAt: '2026-05-31T09:01:00Z',
+    bankBalance: { amount_cents: 4000, as_of: '2026-06-01', currency: 'EUR' },
   });
   const db = new Database(dbPath, { readonly: true });
   assert.deepEqual(qualityKinds(db), ['reconciliation_missing']);

@@ -515,11 +515,20 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
     // 'empty' counts as a successful attempt here exactly as it does in
     // finance_trust's coverage definition: a run that fetched no new
     // transactions still reports a valid closing balance.
+    //
+    // Two different dates matter here and must not be confused. `as_of` is the
+    // ledger cutoff the bank's figure refers to — HKSAL dates its closing
+    // balance at the account's LAST BOOKING, so a dormant account reports an
+    // old as_of while the amount is perfectly current. `finished_at` is when we
+    // asked. Freshness is therefore judged on finished_at (the bank confirmed
+    // this today), while as_of only selects which ledger cutoff to compare
+    // against. Judging freshness on as_of would make any account that simply
+    // has not moved in 35 days permanently unverifiable.
     const latestBankBalance = new Map(db.prepare(`
-      SELECT account_id, bank_balance_cents, bank_balance_as_of FROM (
-        SELECT a.account_id, a.bank_balance_cents, a.bank_balance_as_of,
+      SELECT account_id, bank_balance_cents, bank_balance_as_of, finished_at FROM (
+        SELECT a.account_id, a.bank_balance_cents, a.bank_balance_as_of, p.finished_at,
           ROW_NUMBER() OVER (PARTITION BY a.account_id
-            ORDER BY a.bank_balance_as_of DESC, p.finished_at DESC, a.run_id DESC) rank
+            ORDER BY p.finished_at DESC, a.bank_balance_as_of DESC, a.run_id DESC) rank
         FROM pipeline_run_accounts a JOIN pipeline_runs p ON p.run_id = a.run_id
         WHERE a.outcome IN ('success','empty')
           AND a.bank_balance_cents IS NOT NULL AND a.bank_balance_as_of IS NOT NULL
@@ -537,15 +546,17 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
       if (!evidence || evidence.bank_balance_as_of > capturedDayValue) continue;
       const actualBalanceCents = actualBalanceThrough.get(account.id, evidence.bank_balance_as_of);
       const differenceCents = actualBalanceCents - evidence.bank_balance_cents;
+      const observedDay = String(evidence.finished_at ?? '').slice(0, 10);
       const detail = JSON.stringify({
         bank_balance_cents: evidence.bank_balance_cents, actual_balance_cents: actualBalanceCents,
-        as_of: evidence.bank_balance_as_of,
+        as_of: evidence.bank_balance_as_of, observed_at: evidence.finished_at ?? null,
         basis: 'value_cents = actual_balance_cents - bank_balance_cents',
       });
       if (differenceCents === 0) {
-        // Only a balance inside the same 35-day window used for UI
-        // reconciliation staleness may stand in for a UI reconcile.
-        if (evidence.bank_balance_as_of < reconciliationDay) continue;
+        // Only a confirmation obtained inside the same 35-day window used for
+        // UI reconciliation staleness may stand in for a UI reconcile. This is
+        // the date we ASKED, not the date the bank last booked something.
+        if (!validIsoDay(observedDay) || observedDay < reconciliationDay) continue;
         bankVerified.add(account.id);
         insertQuality.run(`reconciliation_bank_verified:${account.id}:${evidence.bank_balance_as_of}`,
           capturedAt, 'reconciliation_bank_verified', 'fints-bridge', account.id, detail, 0, 1, 'info', 'db-sync');
