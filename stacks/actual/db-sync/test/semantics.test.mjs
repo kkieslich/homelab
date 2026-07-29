@@ -209,6 +209,35 @@ test('transactional refresh migrates legacy source-level expected_sources to acc
   db.close();
 });
 
+test('a deployed replica gains the bank balance columns without losing its run history', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'actual-balance-migration-'));
+  const dbPath = path.join(dir, 'actual.sqlite');
+  const legacy = new Database(dbPath);
+  legacy.exec(`CREATE TABLE pipeline_run_accounts (
+      run_id TEXT NOT NULL, account_id TEXT NOT NULL, source TEXT NOT NULL,
+      requested_from TEXT, requested_to TEXT, outcome TEXT NOT NULL,
+      fetched INTEGER, valid INTEGER, added INTEGER, updated INTEGER,
+      quarantined INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (run_id, account_id));
+    INSERT INTO pipeline_run_accounts
+      (run_id,account_id,source,requested_from,requested_to,outcome,valid)
+      VALUES ('old-run','checking','bank','2026-07-01','2026-07-02','success',7);`);
+  legacy.close();
+  await syncToSqlite(dbPath, null, null, null, null, {
+    expectedSources: [], now: new Date('2026-07-18T10:00:00Z'),
+    snapshot: {
+      accounts: [{ id: 'checking', name: 'Checking', offbudget: false, closed: false, last_reconciled: '2026-07-18' }],
+      categoryGroups: [], categories: [], payees: [], transactions: [], balances: { checking: 0 },
+      balanceAsOf: { checking: '2026-07-18' }, budgetMonths: [], schedules: [],
+      schedulesFetchedAt: '2026-07-18T10:00:00Z',
+    },
+  });
+  const db = new Database(dbPath, { readonly: true });
+  assert.deepEqual(db.prepare(`SELECT valid,pending_excluded,bank_balance_cents,bank_balance_as_of
+    FROM pipeline_run_accounts WHERE run_id='old-run'`).get(),
+  { valid: 7, pending_excluded: 0, bank_balance_cents: null, bank_balance_as_of: null });
+  db.close();
+});
+
 test('routine sync replaces current budget state without touching immutable month-close snapshots', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'actual-projection-'));
   const manifests = path.join(dir, 'runs');
@@ -604,6 +633,165 @@ test('future reconciliation dates are rejected as reconciliation-required eviden
   assert.equal(db.prepare("SELECT kind FROM data_quality WHERE account_id='checking'").pluck().get(), 'reconciliation_future');
   assert.ok(JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get()).includes('reconciliation_required'));
   db.close();
+});
+
+// A bank-reported CLBD balance is authoritative reconciliation evidence: the
+// bridge writes it with the same signed-cents convention as Actual's
+// transaction amounts, so Actual's balance on the balance day is simply
+// SUM(amount_cents) WHERE date<=as_of, compared without scaling or negation.
+async function bankBalanceFixture({ bankBalance, name, now = '2026-07-18T10:00:00Z' }) {
+  const dir = await mkdtemp(path.join(tmpdir(), `actual-${name}-`));
+  const manifests = path.join(dir, 'runs');
+  fs.mkdirSync(manifests);
+  fs.writeFileSync(path.join(manifests, 'run.json'), JSON.stringify({
+    schema_version: 1, run_id: 'balance-run', source: 'fints-bank', importer_version: '2',
+    started_at: '2026-07-18T09:00:00Z', finished_at: '2026-07-18T09:01:00Z',
+    requested_range: { from: '2026-07-01', to: '2026-07-18' }, outcome: 'success', error_code: null,
+    accounts: [{
+      actual_account_id: 'checking', fetched: 3, valid: 3, added: 3, updated: 0, quarantined: 0,
+      ...(bankBalance ? { bank_balance: bankBalance } : {}),
+    }],
+  }));
+  const tx = (id, date, amount) => ({
+    id, date, account: 'checking', amount, payee: null, category: null,
+    cleared: true, imported_id: `bank:${id}`,
+  });
+  const snapshot = {
+    // last_reconciled null: nobody has ever pressed "reconcile" in the UI.
+    accounts: [{ id: 'checking', name: 'Checking', offbudget: false, closed: false, last_reconciled: null }],
+    categoryGroups: [], categories: [], payees: [],
+    // SUM through 2026-06-01 is 4000; through 2026-07-15 is 7500;
+    // the 2026-07-17 row exists only to prove the as-of cutoff is applied.
+    transactions: [tx('a', '2026-06-01', 4000), tx('b', '2026-07-15', 3500), tx('c', '2026-07-17', -1000)],
+    balances: { checking: 6500 }, balanceAsOf: { checking: '2026-07-18' },
+    budgetMonths: [], schedules: [], schedulesFetchedAt: '2026-07-18T10:00:00Z',
+  };
+  const dbPath = path.join(dir, 'actual.sqlite');
+  await syncToSqlite(dbPath, null, null, manifests, null, {
+    snapshot, expectedSources: [], now: new Date(now),
+  });
+  return { dbPath, snapshot, manifests };
+}
+
+const qualityKinds = (db) => db.prepare(
+  "SELECT kind FROM data_quality WHERE kind LIKE 'reconciliation_%' ORDER BY kind").pluck().all();
+const trustReasons = (db) => JSON.parse(db.prepare('SELECT reasons FROM finance_trust').pluck().get());
+
+test('a matching bank closing balance is authoritative reconciliation evidence without a UI reconcile', async () => {
+  const { dbPath } = await bankBalanceFixture({
+    name: 'bank-verified', bankBalance: { amount_cents: 7500, as_of: '2026-07-15', currency: 'EUR' },
+  });
+  const db = new Database(dbPath, { readonly: true });
+  assert.deepEqual(db.prepare(`SELECT bank_balance_cents,bank_balance_as_of
+    FROM pipeline_run_accounts WHERE account_id='checking'`).get(),
+  { bank_balance_cents: 7500, bank_balance_as_of: '2026-07-15' });
+  assert.deepEqual(qualityKinds(db), ['reconciliation_bank_verified']);
+  const verified = db.prepare("SELECT * FROM data_quality WHERE kind='reconciliation_bank_verified'").get();
+  assert.equal(verified.severity, 'info');
+  assert.equal(verified.resolved, 1);
+  assert.deepEqual(JSON.parse(verified.detail), {
+    bank_balance_cents: 7500, actual_balance_cents: 7500, as_of: '2026-07-15',
+    basis: 'value_cents = actual_balance_cents - bank_balance_cents',
+  });
+  const reasons = trustReasons(db);
+  assert.ok(!reasons.includes('reconciliation_required'));
+  assert.ok(!reasons.includes('reconciliation_gap'));
+  db.close();
+});
+
+test('a bank closing balance that disagrees with Actual emits a signed reconciliation_gap and blocks trust', async () => {
+  const { dbPath, snapshot, manifests } = await bankBalanceFixture({
+    name: 'bank-gap', bankBalance: { amount_cents: 7000, as_of: '2026-07-15', currency: 'EUR' },
+  });
+  let db = new Database(dbPath);
+  const gap = db.prepare("SELECT * FROM data_quality WHERE kind='reconciliation_gap'").get();
+  // Actual (7500) minus bank (7000): Actual is over-stated by 5.00 EUR.
+  assert.equal(gap.value_cents, 500);
+  assert.equal(gap.check_id, 'reconciliation_gap:checking:2026-07-15:500');
+  assert.equal(gap.severity, 'error');
+  assert.equal(gap.producer, 'db-sync');
+  assert.equal(gap.resolved, 0);
+  assert.deepEqual(JSON.parse(gap.detail), {
+    bank_balance_cents: 7000, actual_balance_cents: 7500, as_of: '2026-07-15',
+    basis: 'value_cents = actual_balance_cents - bank_balance_cents',
+  });
+  // A gap is not a verification, so the missing UI reconcile still stands.
+  assert.deepEqual(qualityKinds(db), ['reconciliation_gap', 'reconciliation_missing']);
+  const reasons = trustReasons(db);
+  assert.ok(reasons.includes('reconciliation_gap'));
+  assert.ok(reasons.includes('reconciliation_required'));
+  db.prepare("UPDATE data_quality SET resolved=1 WHERE kind='reconciliation_gap'").run();
+  db.close();
+  await syncToSqlite(dbPath, null, null, manifests, null, {
+    snapshot, expectedSources: [], now: new Date('2026-07-18T11:00:00Z'),
+  });
+  db = new Database(dbPath, { readonly: true });
+  assert.equal(db.prepare("SELECT resolved FROM data_quality WHERE kind='reconciliation_gap'").pluck().get(), 1);
+  assert.ok(!trustReasons(db).includes('reconciliation_gap'));
+  db.close();
+});
+
+test('an absent bank balance leaves the UI reconciliation requirement untouched', async () => {
+  const { dbPath } = await bankBalanceFixture({ name: 'bank-absent', bankBalance: null });
+  const db = new Database(dbPath, { readonly: true });
+  assert.equal(db.prepare(`SELECT bank_balance_cents FROM pipeline_run_accounts
+    WHERE account_id='checking'`).pluck().get(), null);
+  assert.deepEqual(qualityKinds(db), ['reconciliation_missing']);
+  assert.ok(trustReasons(db).includes('reconciliation_required'));
+  db.close();
+});
+
+test('a bank balance older than the 35-day reconciliation window is not a verification', async () => {
+  // Exact match (SUM through 2026-06-01 is 4000) but 47 days stale, so it
+  // neither vouches for the account nor counts as a gap.
+  const { dbPath } = await bankBalanceFixture({
+    name: 'bank-stale', bankBalance: { amount_cents: 4000, as_of: '2026-06-01', currency: 'EUR' },
+  });
+  const db = new Database(dbPath, { readonly: true });
+  assert.deepEqual(qualityKinds(db), ['reconciliation_missing']);
+  assert.ok(trustReasons(db).includes('reconciliation_required'));
+  db.close();
+});
+
+test('a future-dated last_reconciled still fires even when the bank vouches for the balance', async () => {
+  const { dbPath, snapshot, manifests } = await bankBalanceFixture({
+    name: 'bank-verified-future', bankBalance: { amount_cents: 7500, as_of: '2026-07-15', currency: 'EUR' },
+  });
+  snapshot.accounts[0].last_reconciled = '2026-07-19';
+  await syncToSqlite(dbPath, null, null, manifests, null, {
+    snapshot, expectedSources: [], now: new Date('2026-07-18T11:00:00Z'),
+  });
+  const db = new Database(dbPath, { readonly: true });
+  assert.deepEqual(qualityKinds(db), ['reconciliation_bank_verified', 'reconciliation_future']);
+  assert.ok(trustReasons(db).includes('reconciliation_required'));
+  db.close();
+});
+
+test('a bank balance dated in the future is corrupt and is never treated as evidence', async () => {
+  const { dbPath } = await bankBalanceFixture({
+    name: 'bank-future-balance', bankBalance: { amount_cents: 6500, as_of: '2026-07-19', currency: 'EUR' },
+  });
+  const db = new Database(dbPath, { readonly: true });
+  assert.deepEqual(qualityKinds(db), ['reconciliation_missing']);
+  db.close();
+});
+
+test('a malformed manifest bank balance is dropped rather than projected as evidence', async () => {
+  for (const bankBalance of [
+    { amount_cents: 75.5, as_of: '2026-07-15' },
+    { amount_cents: 7500, as_of: '2026-07-32' },
+    { amount_cents: 7500 },
+    { as_of: '2026-07-15' },
+    'not-an-object',
+  ]) {
+    const { dbPath } = await bankBalanceFixture({ name: 'bank-malformed', bankBalance });
+    const db = new Database(dbPath, { readonly: true });
+    assert.deepEqual(db.prepare(`SELECT bank_balance_cents,bank_balance_as_of
+      FROM pipeline_run_accounts WHERE account_id='checking'`).get(),
+    { bank_balance_cents: null, bank_balance_as_of: null }, JSON.stringify(bankBalance));
+    assert.deepEqual(qualityKinds(db), ['reconciliation_missing'], JSON.stringify(bankBalance));
+    db.close();
+  }
 });
 
 test('sync persists authoritative schedules and deterministic duplicate candidates', async () => {

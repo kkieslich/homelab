@@ -12,14 +12,23 @@ Output shape (stdout or --out):
         {
           "iban": "DE59...",
           "account_number": "8001107152",
+          "balances": [
+            { "type": "CLBD", "date": "2026-05-03", "amount_cents": 4847, "currency": "EUR" }
+          ],
           "transactions": [ { ... }, ... ]
         }
       ]
     }
 
+`balances` carries bank-reported balances (camt.052 <Bal> entries, plus/or the
+HKSAL closing balance) so the importer can reconcile against an authoritative
+figure instead of a running sum. It is always present for cash accounts, but
+may be an empty list when the bank refused or does not support the query.
+
 Usage:
     fints-fetch --bank umwelt --days 60
     fints-fetch --bank fnz --days 30 --out /tmp/fnz.json
+    fints-fetch --bank fnz --days 30 --no-balance   # skip HKSAL entirely
 """
 
 from __future__ import annotations
@@ -249,6 +258,66 @@ def _holding_to_dict(h) -> dict:
     }
 
 
+def _balance_to_dict(bal) -> dict | None:
+    """Normalize an mt940 Balance (what get_balance/HKSAL returns) into exactly
+    the dict CamtBalance.to_dict() emits, so the importer sees one balance
+    contract regardless of which protocol delivered it. HKSAL reports the
+    closing booked balance, hence the hard-coded CLBD.
+
+    Sign convention: `bal.amount` is an `mt940.models.Amount`, whose constructor
+    already negates the value when the C/D status is 'D' — so `.amount.amount`
+    is normally signed and must NOT be negated a second time. We only apply
+    `bal.status` ourselves when the figure clearly hasn't been signed yet
+    (status 'D' but a positive value), which keeps us correct under either
+    convention without ever double-negating.
+
+    Returns None (never raises) when the object is missing or unparseable —
+    callers treat that as "no balance available".
+    """
+    if bal is None:
+        return None
+    try:
+        amount = bal.amount
+        value = float(amount.amount)
+        if getattr(bal, "status", None) == "D" and value > 0:
+            value = -value
+        date = getattr(bal, "date", None)
+        return {
+            "type": "CLBD",
+            "date": date.isoformat() if date else None,
+            "amount_cents": int(round(value * 100)),
+            "currency": getattr(amount, "currency", None) or "EUR",
+        }
+    except Exception as exc:  # noqa: BLE001
+        print(f"[fetch]   balance unparseable: {exc!r}", file=sys.stderr)
+        return None
+
+
+def _fetch_balance(client, a, *, enabled: bool) -> list[dict]:
+    """One HKSAL round-trip for account `a`, returned as a 0- or 1-element list
+    ready to drop into the account's `balances` key.
+
+    Fail-soft by contract: transactions are the primary product and the balance
+    is only supplementary evidence, so every error here is logged and downgraded
+    to an empty list. This must never fail the account or bump `failures`.
+    """
+    if not enabled:
+        return []
+    try:
+        resp = _drain_sca(client, client.get_balance(a))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[fetch]   balance FAILED: {exc!r}", file=sys.stderr)
+        return []
+    bal = _balance_to_dict(resp)
+    if bal is None:
+        return []
+    print(
+        f"[fetch]   balance: €{bal['amount_cents'] / 100:.2f} as of {bal['date']} (HKSAL)",
+        file=sys.stderr,
+    )
+    return [bal]
+
+
 def _state_path_for(profile: BankProfile) -> "Path":
     """Per-bank persistent state file. Stores BPD/UPD + selected TAN mechanism
     so subsequent runs skip the handshake. Useful regardless of bank policy.
@@ -267,7 +336,7 @@ def _dialog_path_for(profile: BankProfile) -> "Path":
     return STATE_DIR / f".dialog-{profile.key}.bin"
 
 
-def _do_fetch(client, profile, *, accounts_filter_iban, start, end, use_mt940, dump_xml, out_accounts):
+def _do_fetch(client, profile, *, accounts_filter_iban, start, end, use_mt940, dump_xml, out_accounts, with_balance=True):
     """Per-account work loop. Assumes the standing dialog on `client` is open
     (either freshly initialised or resumed). Mutates `out_accounts` in place and
     returns the number of account-level failures."""
@@ -321,9 +390,18 @@ def _do_fetch(client, profile, *, accounts_filter_iban, start, end, use_mt940, d
         resp = _drain_sca(client, resp)
         if use_mt940:
             txs = [_mt940_to_dict(t) for t in (resp or [])]
-            print(f"[fetch]   transactions={len(txs)} (HKKAZ)", file=sys.stderr)
+            # MT940 carries no balance of its own, so HKSAL is the only way this
+            # branch gets an authoritative figure — always ask.
+            balances = _fetch_balance(client, a, enabled=with_balance)
+            print(f"[fetch]   transactions={len(txs)}  balances={len(balances)} (HKKAZ)", file=sys.stderr)
             out_accounts.append(
-                {"iban": a.iban, "account_number": a.accountnumber, "type": "cash", "transactions": txs}
+                {
+                    "iban": a.iban,
+                    "account_number": a.accountnumber,
+                    "type": "cash",
+                    "balances": balances,
+                    "transactions": txs,
+                }
             )
             continue
         if isinstance(resp, (list, tuple)) and len(resp) >= 2:
@@ -336,6 +414,11 @@ def _do_fetch(client, profile, *, accounts_filter_iban, start, end, use_mt940, d
         booked = [t.to_dict() for t in parse_many(booked_xml)]
         pending = [t.to_dict() for t in parse_many(pending_xml)]
         balances = [b.to_dict() for b in parse_balances_many(booked_xml)]
+        # The camt report normally already carries a closing booked balance; only
+        # fall back to HKSAL when it doesn't, so we never duplicate or overwrite
+        # what the XML said.
+        if not any(b.get("type") == "CLBD" for b in balances):
+            balances = balances + _fetch_balance(client, a, enabled=with_balance)
         print(
             f"[fetch]   booked={len(booked)}  pending={len(pending)}  balances={len(balances)}  "
             f"(received {len(booked_xml)} booked XML docs / {booked_bytes} B, "
@@ -364,6 +447,7 @@ def fetch_bank(
     iban: str | None,
     dump_xml: str | None = None,
     use_mt940: bool = False,
+    with_balance: bool = True,
 ) -> dict:
     # CLI flag wins; otherwise honor the bank's preference (e.g. Baader needs MT940).
     if not use_mt940 and profile.prefer_mt940:
@@ -425,7 +509,7 @@ def fetch_bank(
             dialog_blob = dialog_path.read_bytes()
             with client.resume_dialog(dialog_blob):
                 print(f"[fetch] {profile.key}: resumed saved dialog ({len(dialog_blob)} bytes) — should skip SCA", file=sys.stderr)
-                failures = _do_fetch(client, profile, accounts_filter_iban=iban, start=start, end=end, use_mt940=use_mt940, dump_xml=dump_xml, out_accounts=out_accounts)
+                failures = _do_fetch(client, profile, accounts_filter_iban=iban, start=start, end=end, use_mt940=use_mt940, dump_xml=dump_xml, out_accounts=out_accounts, with_balance=with_balance)
                 if failures:
                     raise RuntimeError(f"{failures} account fetch(es) failed")
                 _save_paused_dialog()
@@ -455,7 +539,7 @@ def fetch_bank(
         with client:
             if client.init_tan_response:
                 _drain_sca(client, client.init_tan_response)
-            failures = _do_fetch(client, profile, accounts_filter_iban=iban, start=start, end=end, use_mt940=use_mt940, dump_xml=dump_xml, out_accounts=out_accounts)
+            failures = _do_fetch(client, profile, accounts_filter_iban=iban, start=start, end=end, use_mt940=use_mt940, dump_xml=dump_xml, out_accounts=out_accounts, with_balance=with_balance)
             if failures:
                 raise RuntimeError(f"{failures} account fetch(es) failed")
             _save_paused_dialog()
@@ -493,6 +577,7 @@ def main() -> int:
     parser.add_argument("--out", default=None, help="write JSON to this path instead of stdout")
     parser.add_argument("--dump-xml", default=None, metavar="DIR", help="dump raw camt.052 XML docs into DIR for debugging")
     parser.add_argument("--mt940", action="store_true", help="use HKKAZ/MT940 instead of HKCAZ/camt.052 (only works for accounts where the bank allows HKKAZ — checking yes, credit card no)")
+    parser.add_argument("--no-balance", action="store_true", help="skip the HKSAL balance query (some banks meter or rate-limit it); accounts then report balances: []")
     parser.add_argument("--debug", action="store_true", help="enable python-fints DEBUG logging to stderr")
     parser.add_argument("--probe", action="store_true", help="monkey-patch python-fints internals to log what HKCAZ-touchdown collects")
     args = parser.parse_args()
@@ -517,7 +602,8 @@ def main() -> int:
         print(f"\n[fetch] === {profile.short()} ===", file=sys.stderr)
         bank_payloads.append(
             fetch_bank(
-                profile, days=args.days, iban=args.iban, dump_xml=args.dump_xml, use_mt940=args.mt940
+                profile, days=args.days, iban=args.iban, dump_xml=args.dump_xml, use_mt940=args.mt940,
+                with_balance=not args.no_balance,
             )
         )
 

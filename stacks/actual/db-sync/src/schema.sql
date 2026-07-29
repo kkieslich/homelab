@@ -133,6 +133,12 @@ CREATE TABLE IF NOT EXISTS pipeline_run_accounts (
   updated         INTEGER,
   quarantined     INTEGER NOT NULL DEFAULT 0,
   pending_excluded INTEGER NOT NULL DEFAULT 0,
+  -- The bank's own closing-booked (CLBD) balance for this account, as reported
+  -- by the run. Authoritative reconciliation evidence: when it equals Actual's
+  -- ledger summed through bank_balance_as_of, no human UI reconcile is needed.
+  -- Signed, same convention as transactions.amount_cents (negative = owed).
+  bank_balance_cents INTEGER,
+  bank_balance_as_of TEXT,
   PRIMARY KEY (run_id, account_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pipeline_account_coverage

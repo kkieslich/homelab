@@ -130,6 +130,7 @@ console.log(JSON.stringify({
     quarantined: account.quarantined,
     duplicate_candidates: account.duplicate_candidates,
     pending_excluded: account.pending_excluded,
+    bank_balance: account.bank_balance,
   })),
 }, null, 2));
 '
@@ -272,9 +273,28 @@ The normal accounts response omits reconciliation metadata, so db-sync reads
 Actual's authoritative `last_reconciled` field through its supported AQL query.
 Every open account with no date or a date older than 35 days produces a
 deterministic unresolved per-account check. It clears only after Actual reports
-a newer reconciliation date. No balance gap or EUR value is invented; real
-externally produced `reconciliation_gap` checks remain compatible.
+a newer reconciliation date.
 Dates later than the captured Actual calendar day are invalid and also gate trust.
+
+The bank's own closing-booked (CLBD) balance is the second, stronger
+reconciliation source. The importer carries it into each account's manifest
+summary as `bank_balance` and db-sync persists it on `pipeline_run_accounts`
+(`bank_balance_cents`, `bank_balance_as_of`, signed in the same cents
+convention as `transactions.amount_cents`). Each sync compares it against
+Actual's ledger summed through the same day:
+
+- Equal, and dated inside the same 35-day window: the account is bank-verified.
+  An informational `reconciliation_bank_verified` check records the evidence and
+  the `reconciliation_missing`/`reconciliation_stale` checks are suppressed, so
+  no human has to press "reconcile" in the Actual UI. A corrupt future
+  `last_reconciled` still gates trust.
+- Different: a `reconciliation_gap` error check carries the signed difference
+  (`value_cents = actual_balance_cents - bank_balance_cents`) and gates trust.
+  Its identity contains the account, the balance day, and the exact difference,
+  so an operator resolution never absorbs a later or larger gap. A gap is never
+  a verification — the UI reconciliation requirement still stands.
+- Absent, malformed, non-EUR, future-dated, or stale: no evidence either way,
+  and the `last_reconciled` behaviour above is unchanged.
 
 Current budgets carry their own projection timestamp and month evidence. Missing
 rows, a month other than the current Actual month, or evidence older than 15

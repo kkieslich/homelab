@@ -111,6 +111,12 @@ function ensureSchemaMigrations(db) {
   if (runAccounts.length > 0 && !runAccounts.includes('pending_excluded')) {
     db.exec('ALTER TABLE pipeline_run_accounts ADD COLUMN pending_excluded INTEGER NOT NULL DEFAULT 0');
   }
+  if (runAccounts.length > 0 && !runAccounts.includes('bank_balance_cents')) {
+    db.exec('ALTER TABLE pipeline_run_accounts ADD COLUMN bank_balance_cents INTEGER');
+  }
+  if (runAccounts.length > 0 && !runAccounts.includes('bank_balance_as_of')) {
+    db.exec('ALTER TABLE pipeline_run_accounts ADD COLUMN bank_balance_as_of TEXT');
+  }
   const annotations = db.prepare("SELECT name FROM pragma_table_info('review_queue_annotations')").pluck().all();
   // SQLite cannot add CHECK constraints with ALTER TABLE. Existing replicas get
   // the reviewer column safely; all writes still pass strict CLI validation.
@@ -138,6 +144,15 @@ export function reconciledDay(value, timeZone = process.env.ACTUAL_TIMEZONE ?? '
     if (Number.isFinite(parsed.getTime())) return capturedDay(parsed, timeZone);
   }
   return null;
+}
+
+// Manifests are transport written by another process; re-validate the bank
+// balance here rather than trusting it, so a malformed value is dropped
+// instead of being projected as authoritative reconciliation evidence.
+function manifestBankBalance(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (!Number.isInteger(value.amount_cents) || !validIsoDay(value.as_of)) return null;
+  return { amount_cents: value.amount_cents, as_of: String(value.as_of) };
 }
 
 function validSourceInstant(value, now) {
@@ -277,7 +292,8 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const insertRunAccount = db.prepare(`INSERT OR REPLACE INTO pipeline_run_accounts
     (run_id,account_id,source,requested_from,requested_to,outcome,
-     fetched,valid,added,updated,quarantined,pending_excluded) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+     fetched,valid,added,updated,quarantined,pending_excluded,
+     bank_balance_cents,bank_balance_as_of) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const insertAccountProjection = db.prepare(`INSERT INTO account_projection
     (account_id,balance_as_of,last_reconciled,checked_at) VALUES (?,?,?,?)`);
   const insertBudgetProjection = db.prepare(`INSERT INTO budget_projection
@@ -438,21 +454,6 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
     reconciliationCutoff.setUTCDate(reconciliationCutoff.getUTCDate() - 35);
     const reconciliationDay = reconciliationCutoff.toISOString().slice(0, 10);
     const capturedDayValue = capturedDay(projectionNow);
-    for (const account of snapshot.accounts.filter((account) => !account.closed)) {
-      const reconciled = reconciledDay(account.last_reconciled);
-      if (!reconciled) {
-        insertQuality.run(`reconciliation_missing:${account.id}`, capturedAt, 'reconciliation_missing',
-          'actual-api', account.id, 'No authoritative Actual reconciliation date', null, 0, 'error', 'db-sync');
-      } else if (reconciled > capturedDayValue) {
-        insertQuality.run(`reconciliation_future:${account.id}:${reconciled}`, capturedAt, 'reconciliation_future',
-          'actual-api', account.id, JSON.stringify({ last_reconciled: reconciled, captured_day: capturedDayValue }),
-          null, 0, 'error', 'db-sync');
-      } else if (reconciled < reconciliationDay) {
-        insertQuality.run(`reconciliation_stale:${account.id}:${reconciled}`, capturedAt, 'reconciliation_stale',
-          'actual-api', account.id, JSON.stringify({ last_reconciled: reconciled, max_age_days: 35 }),
-          null, 0, 'error', 'db-sync');
-      }
-    }
     for (const monthData of snapshot.budgetMonths ?? []) {
       for (const group of monthData.categoryGroups ?? []) {
         if (group.is_income || group.hidden) continue;
@@ -490,10 +491,93 @@ export async function syncToSqlite(dbPath, fintsStatusPath, holdingsPath, manife
         const source = manifest.source === 'unknown' || manifest.source === 'multiple'
           ? expected?.source : manifest.source;
         if (!source) continue;
+        const bankBalance = manifestBankBalance(account.bank_balance);
         insertRunAccount.run(manifest.run_id, account.actual_account_id, source,
           manifest.requested_range?.from ?? null, manifest.requested_range?.to ?? null,
           account.outcome ?? manifest.outcome, account.fetched ?? null, account.valid ?? null, account.added ?? null,
-          account.updated ?? null, account.quarantined ?? 0, account.pending_excluded ?? 0);
+          account.updated ?? null, account.quarantined ?? 0, account.pending_excluded ?? 0,
+          bankBalance?.amount_cents ?? null, bankBalance?.as_of ?? null);
+      }
+    }
+
+    // Bank-reported balances are authoritative reconciliation evidence and are
+    // therefore evaluated AFTER the run projection above, so the run that just
+    // landed is already visible in pipeline_run_accounts.
+    //
+    // Units/sign: the bridge writes bank_balance_cents straight from the
+    // camt.052/MT940 CLBD balance, signed with DBIT negative — the same
+    // convention as transactions.amount_cents (which is Actual's `amount`, in
+    // cents, negative for money out). Actual's own account balance is by
+    // definition the sum of its transaction amounts, so Actual's balance on a
+    // given day is SUM(amount_cents) WHERE date <= that day, directly
+    // comparable to the bank figure with no scaling or negation.
+    //
+    // 'empty' counts as a successful attempt here exactly as it does in
+    // finance_trust's coverage definition: a run that fetched no new
+    // transactions still reports a valid closing balance.
+    const latestBankBalance = new Map(db.prepare(`
+      SELECT account_id, bank_balance_cents, bank_balance_as_of FROM (
+        SELECT a.account_id, a.bank_balance_cents, a.bank_balance_as_of,
+          ROW_NUMBER() OVER (PARTITION BY a.account_id
+            ORDER BY a.bank_balance_as_of DESC, p.finished_at DESC, a.run_id DESC) rank
+        FROM pipeline_run_accounts a JOIN pipeline_runs p ON p.run_id = a.run_id
+        WHERE a.outcome IN ('success','empty')
+          AND a.bank_balance_cents IS NOT NULL AND a.bank_balance_as_of IS NOT NULL
+      ) WHERE rank = 1
+    `).all().map((row) => [row.account_id, row]));
+    const actualBalanceThrough = db.prepare(
+      'SELECT COALESCE(SUM(amount_cents),0) FROM transactions WHERE account_id=? AND date<=?',
+    ).pluck();
+    // Accounts the bank itself has vouched for; consumed by the reconciliation_*
+    // emission loop below in place of a human UI reconcile.
+    const bankVerified = new Set();
+    for (const account of snapshot.accounts.filter((account) => !account.closed)) {
+      const evidence = latestBankBalance.get(account.id);
+      // A balance dated in the future is corrupt, not evidence.
+      if (!evidence || evidence.bank_balance_as_of > capturedDayValue) continue;
+      const actualBalanceCents = actualBalanceThrough.get(account.id, evidence.bank_balance_as_of);
+      const differenceCents = actualBalanceCents - evidence.bank_balance_cents;
+      const detail = JSON.stringify({
+        bank_balance_cents: evidence.bank_balance_cents, actual_balance_cents: actualBalanceCents,
+        as_of: evidence.bank_balance_as_of,
+        basis: 'value_cents = actual_balance_cents - bank_balance_cents',
+      });
+      if (differenceCents === 0) {
+        // Only a balance inside the same 35-day window used for UI
+        // reconciliation staleness may stand in for a UI reconcile.
+        if (evidence.bank_balance_as_of < reconciliationDay) continue;
+        bankVerified.add(account.id);
+        insertQuality.run(`reconciliation_bank_verified:${account.id}:${evidence.bank_balance_as_of}`,
+          capturedAt, 'reconciliation_bank_verified', 'fints-bridge', account.id, detail, 0, 1, 'info', 'db-sync');
+        continue;
+      }
+      // check_id carries the exact discrepancy: an operator resolving "€5 short
+      // as of the 20th" must not silently absorb a different (or grown) gap on
+      // the 21st. A gap is operator-resolvable — pending-vs-booked timing and
+      // deliberate manual adjustments are legitimate explanations — but only
+      // for the one discrepancy that was actually inspected.
+      const checkId = `reconciliation_gap:${account.id}:${evidence.bank_balance_as_of}:${differenceCents}`;
+      insertQuality.run(checkId, capturedAt, 'reconciliation_gap', 'fints-bridge', account.id, detail,
+        differenceCents, priorQualityResolutions.get(checkId) ?? 0, 'error', 'db-sync');
+    }
+
+    for (const account of snapshot.accounts.filter((account) => !account.closed)) {
+      const reconciled = reconciledDay(account.last_reconciled);
+      if (reconciled && reconciled > capturedDayValue) {
+        // A future last_reconciled is a corrupt value; bank evidence cannot
+        // vouch for it, so this always fires.
+        insertQuality.run(`reconciliation_future:${account.id}:${reconciled}`, capturedAt, 'reconciliation_future',
+          'actual-api', account.id, JSON.stringify({ last_reconciled: reconciled, captured_day: capturedDayValue }),
+          null, 0, 'error', 'db-sync');
+      } else if (bankVerified.has(account.id)) {
+        continue;
+      } else if (!reconciled) {
+        insertQuality.run(`reconciliation_missing:${account.id}`, capturedAt, 'reconciliation_missing',
+          'actual-api', account.id, 'No authoritative Actual reconciliation date', null, 0, 'error', 'db-sync');
+      } else if (reconciled < reconciliationDay) {
+        insertQuality.run(`reconciliation_stale:${account.id}:${reconciled}`, capturedAt, 'reconciliation_stale',
+          'actual-api', account.id, JSON.stringify({ last_reconciled: reconciled, max_age_days: 35 }),
+          null, 0, 'error', 'db-sync');
       }
     }
   }

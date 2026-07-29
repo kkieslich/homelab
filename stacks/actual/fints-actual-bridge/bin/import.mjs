@@ -94,6 +94,30 @@ function requestedRange(payload, today) {
 
 const safeIsoDate = (value) => (isIsoDay(value) ? String(value) : null);
 
+// The bank's own closing-booked balance is the only balance we are willing to
+// treat as authoritative reconciliation evidence downstream (db-sync compares
+// it against Actual's ledger summed through the same day). Only CLBD counts —
+// OPBD/PRCD/ITBD describe a different instant — and a malformed entry is
+// dropped rather than propagated, because a wrong balance here manufactures a
+// false reconciliation failure (or, worse, a false verification).
+// Multiple CLBD entries can appear in a multi-day camt.052 document; the
+// latest-dated one is the account's current closing balance.
+export function closingBankBalance(sourceAccount) {
+  const balances = Array.isArray(sourceAccount?.balances) ? sourceAccount.balances : [];
+  let best = null;
+  for (const balance of balances) {
+    if (balance?.type !== 'CLBD') continue;
+    const asOf = safeIsoDate(balance.date);
+    // Actual's ledger is kept in EUR; a foreign-currency closing balance is
+    // not comparable to it, so it is not evidence.
+    if (!asOf || !Number.isInteger(balance.amount_cents)) continue;
+    if (balance.currency != null && balance.currency !== 'EUR') continue;
+    if (best && best.as_of > asOf) continue;
+    best = { amount_cents: balance.amount_cents, as_of: asOf, currency: 'EUR' };
+  }
+  return best;
+}
+
 function resultCount(result, key) {
   return Array.isArray(result?.[key]) ? result[key].length : 0;
 }
@@ -276,6 +300,8 @@ export async function runImport({
           quarantined: 0,
           pending_excluded: pendingWeak.length,
         };
+        const bankBalance = closingBankBalance(sourceAccount);
+        if (bankBalance) summary.bank_balance = bankBalance;
         accounts.push(summary);
         const evidence = priorBatchEvidence(priorManifests, owner.source, mapping.actual_account_id, manifestRange);
         let validated;

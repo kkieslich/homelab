@@ -97,7 +97,12 @@ services:
       - --out=/state/fnz-fetch.json
       - --fetch-interval=3600
       - --heartbeat-interval=180
-      - --days=30
+      # 90, not 30: the Verrechnungskonto receives ETF distributions only every
+      # few months, and a 30-day rolling window silently missed the ones booked
+      # between fetches (found 2026-07-29 via the new HKSAL balance check — the
+      # ledger had drifted €44.54 below the bank since May). Imports are
+      # idempotent on imported_id, so a wider window only costs a little traffic.
+      - --days=90
       - --import-after
       - --importer
       - node bin/import.mjs --registry /app/accounts.json --manifest-dir /state/import-runs

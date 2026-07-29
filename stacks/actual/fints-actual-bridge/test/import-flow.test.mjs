@@ -384,6 +384,52 @@ test('seed balance is still relabeled when a pending weak-reference transaction 
   assert.equal(records[0].imported_payee, 'Opening Balance');
 });
 
+test('the bank closing balance is carried into the manifest as reconciliation evidence', async () => {
+  const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+  const withBalance = structuredClone(payload);
+  withBalance.accounts[0].balances = [
+    { type: 'OPBD', date: '2026-06-01', amount_cents: 5000, currency: 'EUR' },
+    { type: 'CLBD', date: '2026-06-30', amount_cents: 4000, currency: 'EUR' },
+    { type: 'CLBD', date: '2026-07-01', amount_cents: 3766, currency: 'EUR' },
+  ];
+  const result = await runImport({
+    payload: withBalance, config, registry,
+    actualApi: { async importTransactions() { return { added: ['one'], updated: [] }; } },
+    manifestDir, now: () => new Date('2026-07-18T10:00:00.000Z'),
+  });
+  // Latest-dated CLBD wins; OPBD is never reconciliation evidence.
+  assert.deepEqual(result.accounts[0].bank_balance,
+    { amount_cents: 3766, as_of: '2026-07-01', currency: 'EUR' });
+  const [manifest] = await manifestsIn(manifestDir);
+  assert.deepEqual(manifest.accounts[0].bank_balance,
+    { amount_cents: 3766, as_of: '2026-07-01', currency: 'EUR' });
+});
+
+test('malformed, foreign-currency, and absent closing balances are dropped rather than propagated', async () => {
+  const cases = [
+    undefined,
+    [],
+    [{ type: 'OPBD', date: '2026-07-01', amount_cents: 5000, currency: 'EUR' }],
+    [{ type: 'CLBD', date: '2026-07-01', amount_cents: 37.66, currency: 'EUR' }],
+    [{ type: 'CLBD', date: '2026-07-01', amount_cents: null, currency: 'EUR' }],
+    [{ type: 'CLBD', date: '2026-13-01', amount_cents: 3766, currency: 'EUR' }],
+    [{ type: 'CLBD', date: null, amount_cents: 3766, currency: 'EUR' }],
+    [{ type: 'CLBD', date: '2026-07-01', amount_cents: 3766, currency: 'CHF' }],
+  ];
+  for (const balances of cases) {
+    const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
+    const variant = structuredClone(payload);
+    if (balances !== undefined) variant.accounts[0].balances = balances;
+    const result = await runImport({
+      payload: variant, config, registry,
+      actualApi: { async importTransactions() { return { added: ['one'], updated: [] }; } },
+      manifestDir, now: () => new Date('2026-07-18T10:00:00.000Z'),
+    });
+    assert.equal(Object.hasOwn(result.accounts[0], 'bank_balance'), false,
+      `expected no bank_balance for ${JSON.stringify(balances)}`);
+  }
+});
+
 test('dry run emits canonical transaction JSON through the injected output', async () => {
   const manifestDir = await mkdtemp(join(tmpdir(), 'import-flow-'));
   const output = [];
