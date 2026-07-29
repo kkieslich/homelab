@@ -11,6 +11,13 @@ x-fints-base: &fints-base
   # manual Umwelt job would keep running a stale image after run_build deploys
   # rebuild the daemon. With it, the daemon's rebuild IS the umwelt refresh.
   image: actual-fints-bridge:local
+  # Required because of the explicit `image:` above. Komodo's deploy runs
+  # `compose pull` after `compose build`, and an image tag with no registry
+  # behind it makes pull fail ("pull access denied"), aborting the deploy
+  # before `up` — which silently blocked every deploy from 437f5be (2026-07-24)
+  # until 2026-07-29. `build` tells compose this image comes from source, so
+  # pull skips it. Services with only `build:` (actual_db_sync) skip it anyway.
+  pull_policy: build
   restart: unless-stopped
   env_file:
     # Decrypted from enc.env by the Komodo pre_deploy step (see syncs/stacks.toml).
