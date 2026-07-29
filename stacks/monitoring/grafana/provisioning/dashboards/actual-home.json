@@ -8,79 +8,110 @@
   ],
   "panels": [
     {
+      "id": 3, "type": "stat", "title": "Net worth (€)", "description": "Euro, current. Sum of every account balance as held right now, including closed accounts that still carry a balance. This is the live figure, not a month-close capture.",
+      "gridPos": { "x": 0, "y": 0, "w": 5, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT SUM(balance_cents) / 100.0 AS value FROM accounts" }],
+      "fieldConfig": { "defaults": { "unit": "locale", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Liquid (€)", "description": "Euro, current. On-budget accounts that are still open, so overdrawn cards reduce the figure. Off-budget depots and closed accounts are excluded.",
+      "gridPos": { "x": 5, "y": 0, "w": 5, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT COALESCE(SUM(balance_cents),0) / 100.0 AS value FROM accounts WHERE offbudget=0 AND closed=0" }],
+      "fieldConfig": { "defaults": { "unit": "locale", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 5, "type": "stat", "title": "Safe — month (€)", "description": "Euro for the rest of the current month, evaluated at query time. Positive discretionary availability minus essential underfunding and unpaid discretionary schedules due through month-end; blank when finance trust fails.",
+      "gridPos": { "x": 10, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN s.month_cents/100.0 END AS value FROM safe_to_spend s CROSS JOIN finance_trust f" }],
+      "fieldConfig": { "defaults": { "unit": "locale", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 6, "type": "stat", "title": "Safe — day (€)", "description": "Euro per day through month end, including today, evaluated at query time by the canonical schedule-aware calculation; blank when finance trust fails.",
+      "gridPos": { "x": 14, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN s.per_day_cents/100.0 END AS value FROM safe_to_spend s CROSS JOIN finance_trust f" }],
+      "fieldConfig": { "defaults": { "unit": "locale", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 7, "type": "stat", "title": "Savings rate", "description": "Percent of ordinary income kept in the LAST COMPLETE month: (income − consumption) / income. Negative means more was consumed than earned. Deliberately not month-to-date: salary usually lands late in the month, so a current-month figure reads like a catastrophic loss until it arrives. Blank when income is zero or finance trust fails.",
+      "gridPos": { "x": 18, "y": 0, "w": 3, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH m AS (SELECT MAX(month) month FROM consumption WHERE month<strftime('%Y-%m','now')) SELECT CASE WHEN f.trusted=1 AND i.income_cents>0 THEN 100.0*(i.income_cents-c.spend_cents)/i.income_cents END AS value FROM m CROSS JOIN (SELECT COALESCE(SUM(amount_cents),0) income_cents FROM ordinary_income WHERE month=(SELECT month FROM m)) i CROSS JOIN (SELECT ABS(COALESCE(SUM(amount_cents),0)) spend_cents FROM consumption WHERE month=(SELECT month FROM m)) c CROSS JOIN finance_trust f" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "#E5AC0E", "value": null }, { "color": "#3274D9", "value": 0 }] } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 11, "type": "stat", "title": "Investment rate", "description": "Percent of ordinary income moved into brokerage contributions in the LAST COMPLETE month, on the same period as the savings rate beside it. This is a contribution rate, not a savings rate: it reads zero in any month without a purchase. Blank when income is zero or finance trust fails.",
+      "gridPos": { "x": 21, "y": 0, "w": 3, "h": 4 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH m AS (SELECT MAX(month) month FROM consumption WHERE month<strftime('%Y-%m','now')) SELECT CASE WHEN f.trusted=1 AND i.income_cents>0 THEN 100.0*s.contrib_cents/i.income_cents END AS value FROM m CROSS JOIN (SELECT COALESCE(SUM(amount_cents),0) income_cents FROM ordinary_income WHERE month=(SELECT month FROM m)) i CROSS JOIN (SELECT COALESCE(SUM(amount_cents),0) contrib_cents FROM savings_contributions WHERE month=(SELECT month FROM m)) s CROSS JOIN finance_trust f" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
       "id": 1, "type": "stat", "title": "Finance projection trust", "description": "Authoritative trust gate evaluated at query time. TRUSTED means every expected source, reconciliation, quarantine, and review-queue gate currently passes.",
-      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+      "gridPos": { "x": 0, "y": 4, "w": 5, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
       "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT trusted AS value FROM finance_trust" }],
       "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "#E5AC0E" }, "mappings": [{ "type": "value", "options": { "0": { "text": "DO NOT USE", "color": "#E5AC0E", "index": 0 }, "1": { "text": "TRUSTED", "color": "#3274D9", "index": 1 } } }] }, "overrides": [] },
       "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
     },
     {
-      "id": 2, "type": "table", "title": "Trust gate reasons", "description": "Machine-readable reasons from the finance trust view, evaluated now. An empty JSON array means no active trust failure.",
-      "gridPos": { "x": 8, "y": 0, "w": 16, "h": 4 },
+      "id": 2, "type": "table", "title": "Trust gate reasons", "description": "Machine-readable reasons from the finance trust view, evaluated now. 'No active failures' means every gate currently passes.",
+      "gridPos": { "x": 5, "y": 4, "w": 9, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
       "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE trusted WHEN 1 THEN 'No active failures' ELSE reasons END AS \"Current trust status / reasons\" FROM finance_trust" }],
       "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
     },
     {
-      "id": 3, "type": "stat", "title": "Net worth — close", "description": "EUR. Sum of all accounts from the latest immutable month-close capture; the capture timestamp is returned with the value.",
-      "gridPos": { "x": 0, "y": 4, "w": 6, "h": 4 },
-      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest_capture AS (SELECT MAX(captured_at) captured_at FROM net_worth_snapshots) SELECT SUM(n.balance_cents) / 100.0 AS value, MAX(n.captured_at) AS captured_at FROM net_worth_snapshots n JOIN latest_capture l ON l.captured_at=n.captured_at" }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
-      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value_and_name" }
-    },
-    {
-      "id": 4, "type": "stat", "title": "Liquid — close", "description": "EUR. On-budget, open accounts from the same latest immutable month-close capture; current account metadata only identifies liquid accounts.",
-      "gridPos": { "x": 6, "y": 4, "w": 6, "h": 4 },
-      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest_capture AS (SELECT MAX(captured_at) captured_at FROM net_worth_snapshots) SELECT SUM(n.balance_cents) / 100.0 AS value, MAX(n.captured_at) AS captured_at FROM net_worth_snapshots n JOIN latest_capture l ON l.captured_at=n.captured_at JOIN accounts a ON a.id=n.account_id WHERE a.offbudget=0 AND a.closed=0" }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
-      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value_and_name" }
-    },
-    {
-      "id": 5, "type": "stat", "title": "Safe — month", "description": "EUR, current month, evaluated_at returned by the canonical calculation. Positive discretionary availability minus essential underfunding and unpaid discretionary schedules due through month-end; hidden when finance trust fails.",
-      "gridPos": { "x": 12, "y": 4, "w": 4, "h": 4 },
-      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN s.month_cents/100.0 END AS value,s.evaluated_at FROM safe_to_spend s CROSS JOIN finance_trust f" }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
-      "options": { "colorMode": "value", "graphMode": "none" }
-    },
-    {
-      "id": 6, "type": "stat", "title": "Safe — day", "description": "EUR/day through month end, including today; evaluated_at is returned by the canonical schedule-aware calculation and the value is hidden when finance trust fails.",
-      "gridPos": { "x": 16, "y": 4, "w": 4, "h": 4 },
-      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 THEN s.per_day_cents/100.0 END AS value,s.evaluated_at FROM safe_to_spend s CROSS JOIN finance_trust f" }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [] },
-      "options": { "colorMode": "value", "graphMode": "none" }
-    },
-    {
-      "id": 7, "type": "stat", "title": "Savings rate", "description": "Percent, evaluated_at returned by the query. Current-month contributions divided by ordinary income; null when income is zero or finance trust fails.",
-      "gridPos": { "x": 20, "y": 4, "w": 4, "h": 4 },
-      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT CASE WHEN f.trusted=1 AND i.value_cents>0 THEN 100.0*s.value_cents/i.value_cents END AS value,datetime('now') AS evaluated_at FROM (SELECT COALESCE(SUM(amount_cents),0) value_cents FROM ordinary_income WHERE month=strftime('%Y-%m','now')) i CROSS JOIN (SELECT COALESCE(SUM(amount_cents),0) value_cents FROM savings_contributions WHERE month=strftime('%Y-%m','now')) s CROSS JOIN finance_trust f" }],
-      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] },
-      "options": { "colorMode": "value", "graphMode": "none" }
-    },
-    {
       "id": 8, "type": "stat", "title": "Open review queue", "description": "Count now. On-budget, non-transfer transactions missing a category or normalized payee in the canonical review queue.",
-      "gridPos": { "x": 0, "y": 8, "w": 6, "h": 4 },
+      "gridPos": { "x": 14, "y": 4, "w": 5, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
       "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT COUNT(*) AS value FROM review_queue" }],
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#E5AC0E" } }, "overrides": [] },
-      "options": { "colorMode": "value", "graphMode": "none" }
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value" }
     },
     {
-      "id": 9, "type": "barchart", "title": "Current envelope funding and consumption by role", "description": "EUR, current budget month returned as data_as_of. Budgeted amount and absolute spend grouped by canonical role; exact values are available in tooltips.",
-      "gridPos": { "x": 6, "y": 8, "w": 18, "h": 8 },
+      "id": 12, "type": "stat", "title": "Net worth — last close (€)", "description": "Euro, historical. Sum of all accounts from the latest immutable month-close capture, with the month that capture belongs to. Use the live 'Net worth (€)' tile for today's figure; this one only moves when a month closes.",
+      "gridPos": { "x": 19, "y": 4, "w": 5, "h": 4 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
-      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT category_role AS role,SUM(budgeted_cents)/100.0 AS \"Funded EUR\",ABS(SUM(spent_cents))/100.0 AS \"Consumed EUR\",MAX(month) AS data_as_of FROM current_budgets WHERE month=strftime('%Y-%m','now') GROUP BY category_role ORDER BY category_role" }],
-      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 }, "overrides": [{ "matcher": { "id": "byName", "options": "Funded EUR" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3274D9" } }] }, { "matcher": { "id": "byName", "options": "Consumed EUR" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E5AC0E" } }] }, { "matcher": { "id": "byName", "options": "data_as_of" }, "properties": [{ "id": "custom.hideFrom", "value": { "legend": true, "tooltip": false, "viz": true } }] }] },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH latest AS (SELECT MAX(captured_at) captured_at FROM net_worth_snapshots) SELECT SUM(n.balance_cents)/100.0 AS \"Net worth €\",MAX(n.month) AS \"Close month\" FROM net_worth_snapshots n JOIN latest l ON l.captured_at=n.captured_at" }],
+      "fieldConfig": { "defaults": { "unit": "locale", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "#3274D9" } }, "overrides": [{ "matcher": { "id": "byName", "options": "Close month" }, "properties": [{ "id": "unit", "value": "string" }] }] },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value_and_name" }
+    },
+    {
+      "id": 13, "type": "timeseries", "title": "Net worth over time (€)", "description": "Euro. Month-end net worth across all accounts, derived as the running cumulative sum of every booked transaction; depot revaluations are booked as transactions, so this tracks total holdings and not just cash. The final point is the current month to date and equals the live 'Net worth (€)' tile.",
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "time series", "timeColumns": ["time"], "rawQueryText": "WITH monthly AS (SELECT month,SUM(amount_cents) delta_cents FROM transactions GROUP BY month) SELECT CAST(strftime('%s',month||'-01') AS INTEGER) AS time,SUM(delta_cents) OVER (ORDER BY month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)/100.0 AS \"Net worth €\" FROM monthly ORDER BY month" }],
+      "fieldConfig": { "defaults": { "unit": "locale", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "#3274D9" }, "custom": { "lineWidth": 2, "showPoints": "auto", "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } }
+    },
+    {
+      "id": 14, "type": "table", "title": "Account balances (€)", "description": "Every account and what it currently holds, highest balance first. Reconciliation shows the last bank-verified balance check per account; 'Never bank-verified' means no FinTS balance confirmation has ever been recorded for it. 'Balance as of' is the date the read-replica computed the balance.",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH recon AS (SELECT account_id,json_extract(detail,'$.as_of') AS as_of,ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY checked_at DESC) r FROM data_quality WHERE kind='reconciliation_bank_verified'), rows AS (SELECT a.name AS \"Account\",a.balance_cents/100.0 AS \"Balance €\",CASE a.offbudget WHEN 1 THEN 'Off-budget' ELSE 'On-budget' END AS \"Budget\",CASE a.closed WHEN 1 THEN 'Closed' ELSE 'Open' END AS \"State\",COALESCE('Bank verified '||r.as_of,'Reconciled '||date(CAST(p.last_reconciled AS INTEGER)/1000,'unixepoch'),'Never bank-verified') AS \"Reconciliation\",COALESCE(p.balance_as_of,'unknown') AS \"Balance as of\" FROM accounts a LEFT JOIN account_projection p ON p.account_id=a.id LEFT JOIN recon r ON r.account_id=a.id AND r.r=1) SELECT * FROM rows UNION ALL SELECT 'None — no accounts are configured yet',NULL,'','','','' WHERE NOT EXISTS (SELECT 1 FROM rows) ORDER BY 2 DESC" }],
+      "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [{ "matcher": { "id": "byName", "options": "Balance €" }, "properties": [{ "id": "unit", "value": "locale" }, { "id": "decimals", "value": 2 }, { "id": "custom.align", "value": "right" }] }] }, "options": { "showHeader": true }
+    },
+    {
+      "id": 9, "type": "barchart", "title": "Current envelope funding and consumption by role (€)", "description": "Euro for the current budget month. Funded is the budgeted amount per canonical role, consumed is the absolute spend against it; exact values are available in tooltips.",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
+      "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "SELECT category_role AS Role,SUM(budgeted_cents)/100.0 AS \"Funded €\",ABS(SUM(spent_cents))/100.0 AS \"Consumed €\" FROM current_budgets WHERE month=strftime('%Y-%m','now') GROUP BY category_role ORDER BY category_role" }],
+      "fieldConfig": { "defaults": { "unit": "locale", "decimals": 2 }, "overrides": [{ "matcher": { "id": "byName", "options": "Funded €" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3274D9" } }] }, { "matcher": { "id": "byName", "options": "Consumed €" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E5AC0E" } }] }] },
       "options": { "orientation": "horizontal", "showValue": "always", "stacking": "none", "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } }
     },
     {
       "id": 10, "type": "table", "title": "Expected source freshness", "description": "Latest run per expected source, evaluated now. Age and expected cadence are hours; status text distinguishes current, stale, and missing without relying on color.",
-      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 },
       "datasource": { "type": "frser-sqlite-datasource", "uid": "actual" },
       "targets": [{ "refId": "A", "queryType": "table", "rawQueryText": "WITH invalid_future AS (SELECT a.account_id,a.source FROM pipeline_run_accounts a JOIN pipeline_runs p ON p.run_id=a.run_id WHERE CAST(strftime('%s',p.finished_at) AS INTEGER)>CAST(strftime('%s','now') AS INTEGER)+300 GROUP BY a.account_id,a.source), attempts AS (SELECT a.*,p.finished_at,ROW_NUMBER() OVER (PARTITION BY a.account_id,a.source ORDER BY p.finished_at DESC,a.run_id DESC) r FROM pipeline_run_accounts a JOIN pipeline_runs p ON p.run_id=a.run_id WHERE strftime('%s',p.finished_at) IS NOT NULL AND CAST(strftime('%s',p.finished_at) AS INTEGER)<=CAST(strftime('%s','now') AS INTEGER)+300), successes AS (SELECT a.*,p.finished_at,ROW_NUMBER() OVER (PARTITION BY a.account_id,a.source ORDER BY a.requested_to DESC,p.finished_at DESC,a.run_id DESC) r FROM pipeline_run_accounts a JOIN pipeline_runs p ON p.run_id=a.run_id WHERE a.outcome='success' AND strftime('%s',p.finished_at) IS NOT NULL AND CAST(strftime('%s',p.finished_at) AS INTEGER)<=CAST(strftime('%s','now') AS INTEGER)+300) SELECT e.account_id AS Account,e.source AS Source,a.finished_at AS \"Latest attempt UTC\",a.outcome AS \"Attempt outcome\",s.requested_to AS \"Covered through\",ROUND(e.expected_cadence_seconds/3600.0,1) AS \"Expected hours\",CASE WHEN f.account_id IS NOT NULL THEN 'INVALID FUTURE TIMESTAMP' WHEN e.expected_cadence_seconds IS NULL OR e.expected_cadence_seconds<=0 THEN 'NO CADENCE' WHEN a.run_id IS NULL THEN 'MISSING ATTEMPT' WHEN a.outcome<>'success' THEN 'ATTEMPT FAILED/DRY/EMPTY' WHEN s.run_id IS NULL THEN 'NO SUCCESS' WHEN s.requested_from IS NULL OR s.requested_to IS NULL OR julianday(s.requested_from) IS NULL OR julianday(s.requested_to) IS NULL OR date(julianday(s.requested_from))<>s.requested_from OR date(julianday(s.requested_to))<>s.requested_to OR s.requested_from>s.requested_to OR s.requested_to>date('now') THEN 'INVALID COVERAGE' WHEN s.requested_to<date('now',printf('-%d seconds',e.expected_cadence_seconds)) THEN 'STALE COVERAGE' WHEN strftime('%s','now')-strftime('%s',s.finished_at)>e.expected_cadence_seconds THEN 'STALE SUCCESS' ELSE 'CURRENT' END AS Status FROM expected_sources e LEFT JOIN invalid_future f ON f.account_id=e.account_id AND f.source=e.source LEFT JOIN attempts a ON a.account_id=e.account_id AND a.source=e.source AND a.r=1 LEFT JOIN successes s ON s.account_id=e.account_id AND s.source=e.source AND s.r=1 ORDER BY Status DESC,e.source,e.account_id" }],
       "fieldConfig": { "defaults": { "custom": { "cellOptions": { "type": "auto" } } }, "overrides": [] }, "options": { "showHeader": true }
