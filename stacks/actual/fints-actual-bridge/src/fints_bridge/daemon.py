@@ -108,6 +108,21 @@ def _run_importer(importer: str, bank_key: str, out_path: Path) -> None:
         logger.error("importer raised: %r", exc)
 
 
+def _payload_is_barren(payload: dict) -> bool:
+    """True when a payload carries no data of ANY kind for ANY account.
+
+    A single quiet account is normal (a Verrechnungskonto can genuinely have no
+    transactions for months). Every account reporting no transactions AND no
+    holdings AND no balances at once is not: it is what a half-open FinTS
+    session looks like when the bank answers politely with nothing.
+    """
+    for bank in payload.get("banks", []):
+        for account in bank.get("accounts", []):
+            if account.get("transactions") or account.get("holdings") or account.get("balances"):
+                return False
+    return True
+
+
 def _do_full_fetch(client, profile, days: int, use_mt940: bool, out_path: Path) -> dict:
     end = dt.date.today()
     start = end - dt.timedelta(days=days)
@@ -130,6 +145,23 @@ def _do_full_fetch(client, profile, days: int, use_mt940: bool, out_path: Path) 
             "accounts": out_accounts,
         }],
     }
+    # Never let a barren fetch overwrite a payload that still has data. The bank
+    # can answer a resumed-but-dead session with an empty result for every
+    # account and no error; writing that out destroys the last known-good
+    # payload and leaves the importer to reject it (EMPTY_BATCH_REGRESSION)
+    # after the good copy is already gone. Observed 2026-07-29 on a redeploy.
+    # Raising here is the honest outcome: it is a failed fetch, and the daemon's
+    # bounded restart policy retries it.
+    if _payload_is_barren(payload) and out_path.exists():
+        try:
+            previous = json.loads(out_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            previous = None
+        if previous is not None and not _payload_is_barren(previous):
+            raise RuntimeError(
+                "fetch returned no transactions, holdings or balances for any account "
+                f"while {out_path.name} still holds data — refusing to overwrite it"
+            )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     try:
