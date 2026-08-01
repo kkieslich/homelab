@@ -9,6 +9,17 @@
   "editUsernameAllowed": false,
   "sslRequired": "external",
   "loginTheme": "beerbot",
+  "smtpServer": {
+    "host": "mail.smtp2go.com",
+    "port": "2525",
+    "from": "noreply@beerbot.app",
+    "fromDisplayName": "BeerBot",
+    "ssl": "false",
+    "starttls": "true",
+    "auth": "true",
+    "user": "$(env:KEYCLOAK_SMTP_USER)",
+    "password": "$(env:KEYCLOAK_SMTP_PASSWORD)"
+  },
   "roles": {
     "realm": [
       {
