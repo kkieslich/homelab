@@ -8,3 +8,9 @@
 # pre_deploy decrypts it to a gitignored fcm-api.json on the host. Never commit the
 # decrypted key.
 fcm-api.json
+
+# The Keycloak realm is owned by the BeerBot repo and baked into the Keycloak
+# image; pre_deploy extracts it here at deploy time. A committed copy is what let
+# the two files drift apart before — keep it untracked so there is exactly one
+# source of truth.
+scripts/keycloak/beerbot-realm.json

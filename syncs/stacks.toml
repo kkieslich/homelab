@@ -171,10 +171,18 @@ ignore_services = ["beerbot-db-init", "beerbot-keycloak-config", "beerbot-minio-
 # the actual stack decrypts banks.toml.enc. sops is on Periphery's PATH and reads its
 # private age-key copy (both provisioned by the NixOS komodo module). Komodo runs
 # pre_deploy with cwd = run_directory, so enc.env/.env are plain relative paths.
+#
+# The last step extracts beerbot-realm.json out of the Keycloak image instead of
+# reading a copy committed here. The BeerBot repo owns that file; this repo used
+# to carry a hand-synced duplicate, which is a silent-drift trap — edit one, forget
+# the other, and the realm deploys stale with no error anywhere. CI rebuilds the
+# Keycloak image on scripts/keycloak/**, so the image always carries the current
+# realm. The explicit pull is required: the stack sets auto_pull = false, so
+# without it we would extract from whatever stale image the host happens to hold.
 [stack.config.pre_deploy]
 path = ""
 shell_mode = true
-command = '''set -eu; K=/var/lib/komodo-periphery/age-key.txt; R=.registry.env; trap 'rm -f "$R"' EXIT; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary fcm-api.json.enc > fcm-api.json && chmod 600 fcm-api.json; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary old-vps.key.enc > old-vps.key && chmod 600 old-vps.key; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary registry.env.enc > "$R" && chmod 600 "$R"; set -a; . ./"$R"; set +a; printf %s "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin >/dev/null'''
+command = '''set -eu; K=/var/lib/komodo-periphery/age-key.txt; R=.registry.env; trap 'rm -f "$R"; [ -n "${CID:-}" ] && docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary fcm-api.json.enc > fcm-api.json && chmod 600 fcm-api.json; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary old-vps.key.enc > old-vps.key && chmod 600 old-vps.key; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary registry.env.enc > "$R" && chmod 600 "$R"; set -a; . ./"$R"; set +a; printf %s "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin >/dev/null; KC_IMG=ghcr.io/beerbotapp/beerbot/keycloak:latest; docker pull -q "$KC_IMG" >/dev/null; mkdir -p scripts/keycloak; CID=$(docker create "$KC_IMG"); docker cp "$CID":/opt/keycloak/realm/beerbot-realm.json scripts/keycloak/beerbot-realm.json'''
 
 # Sendspin player — the official OHF Python player (sendspin-cli), built locally
 # from stacks/sendspin/Dockerfile. Connects to the Music Assistant Sendspin
