@@ -119,8 +119,20 @@ services:
     networks: [proxy_net]
 
   # --- Postgres (beerbot + keycloak DBs; empty on first start) ---------------
+  #
+  # Every Docker Hub image in this stack (postgres, keycloak-config-cli, minio,
+  # mc) carries `pull_policy: missing`. Docker Hub rate-limits anonymous pulls
+  # per source IP, and ONE 429 aborts the whole `docker compose pull` — every
+  # GHCR image in the same run is reported "Interrupted" and the deploy quietly
+  # keeps running the old code. Not hypothetical: that is why a fixed migrator
+  # image failed to roll out on 2026-08-06. These four are pinned and are not
+  # meant to move on their own (beerbot-db/minio are already in
+  # auto_update_skip_services), so skipping them once present costs nothing and
+  # takes Docker Hub off the critical path of every app deploy. A fresh host
+  # still pulls them — `missing`, not `never`.
   beerbot-db:
     image: postgres:14.1-alpine
+    pull_policy: missing
     container_name: beerbot-db
     restart: unless-stopped
     env_file:
@@ -145,6 +157,7 @@ services:
   # official entrypoint init scripts only run on a brand-new PGDATA directory.
   beerbot-db-init:
     image: postgres:14.1-alpine
+    pull_policy: missing
     container_name: beerbot-db-init
     restart: "no"
     depends_on:
@@ -198,6 +211,7 @@ services:
   # --- Keycloak realm config (idempotent; safe every deploy) -----------------
   beerbot-keycloak-config:
     image: adorsys/keycloak-config-cli:6.5.1-26.5.5
+    pull_policy: missing
     container_name: beerbot-keycloak-config
     restart: on-failure:5
     depends_on:
@@ -236,6 +250,7 @@ services:
   # --- MinIO (object storage for pictures) ----------------------------------
   beerbot-minio:
     image: minio/minio:latest
+    pull_policy: missing
     container_name: beerbot-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -248,6 +263,7 @@ services:
 
   beerbot-minio-init:
     image: minio/mc:latest
+    pull_policy: missing
     container_name: beerbot-minio-init
     depends_on:
       beerbot-minio: { condition: service_started }
