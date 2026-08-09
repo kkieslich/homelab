@@ -58,6 +58,11 @@ def main() -> int:
         errors.append("sendspin: locally built image must not use registry polling")
 
     beerbot = by_name["beerbot"]["config"]
+    # auto_pull gates the only `compose pull` in Komodo's deploy path. With it
+    # false the stack redeploys every 15 minutes against the cached :latest and
+    # silently never updates — the failure mode fixed on 2026-08-09.
+    if beerbot.get("auto_pull", True) is not True:
+        errors.append("beerbot: auto_pull must be true or new images never roll out")
     if not BEERBOT_STATEFUL_SERVICES <= set(
         beerbot.get("auto_update_skip_services", [])
     ):
@@ -128,15 +133,20 @@ def main() -> int:
         errors.append("proxy: Caddy service must consume its repo-decrypted .env")
     if 'command: ["sync", "--watch", "900"]' not in beerbot_compose:
         errors.append("beerbot: migrator wrapper must preserve sync --watch arguments")
+    # beerbot's auto_pull = true is only safe because these never reach Docker Hub.
+    for image in ("postgres:14.1-alpine", "adorsys/keycloak-config-cli", "minio/minio", "minio/mc"):
+        block = beerbot_compose.split(f"image: {image}")
+        if len(block) < 2 or "pull_policy: missing" not in block[1][:120]:
+            errors.append(f"beerbot: {image} must carry pull_policy: missing")
     proxy_config = by_name["proxy"]["config"]
+    # Accepted trade-off, not an endorsement: this also means Caddy digest updates
+    # never roll out. See the note on the proxy stack in syncs/stacks.toml.
     if proxy_config.get("auto_pull") is not False:
         errors.append("proxy: periodic refresh requires auto_pull = false")
     if "sops -d" not in proxy_config.get("pre_deploy", {}).get("command", ""):
         errors.append("proxy: missing SOPS pre_deploy decryption")
 
     beerbot_config = by_name["beerbot"]["config"]
-    if beerbot_config.get("auto_pull") is not False:
-        errors.append("beerbot: Git deploys must leave image pulls to Global Auto Update")
     beerbot_pre_deploy = beerbot_config.get("pre_deploy", {}).get("command", "")
     for required in ("registry.env.enc", "old-vps.key.enc", "docker login"):
         if required not in beerbot_pre_deploy:

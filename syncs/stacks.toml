@@ -21,8 +21,17 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/proxy"
 file_paths = ["docker-compose.yml"]
-# The separate five-minute Proxy refresh must not hit Docker Hub every cycle.
-# Global Auto Update still handles Caddy image digest changes.
+# The separate five-minute Proxy refresh must not hit Docker Hub every cycle,
+# hence no auto pull. KNOWN CONSEQUENCE: Caddy image digest changes do NOT roll
+# out here either — `auto_pull` gates the only `compose pull` in the deploy path
+# (see the long note on the beerbot stack), so Global Auto Update will detect a
+# new caddy digest, redeploy without fetching it, and then detect it again every
+# 15 minutes forever. Unlike beerbot this cannot be fixed by flipping the flag:
+# the 5-minute refresh procedure is a full DeployStack, so auto_pull = true would
+# mean ~288 Docker Hub pulls a day from the lab's shared anonymous IP, which is
+# the rate limit that already broke a beerbot rollout on 2026-08-06. The real fix
+# is a registry mirror or a Docker Hub login on the daemon (home-infrastructure),
+# or decoupling the Caddyfile refresh from a full stack deploy.
 auto_pull = false
 poll_for_updates = true
 auto_update = true
@@ -132,8 +141,9 @@ shell_mode = true
 command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env && SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary banks.toml.enc > banks.toml && chmod 644 banks.toml'
 
 # BeerBot — runs the GHCR images built by github.com/BeerbotApp/BeerBot. Live prod
-# data is forward-synced by the in-stack migrator (parallel run). GHCR images are
-# private: add a registry account (PAT read:packages) in Komodo, or make public.
+# data is forward-synced by the in-stack migrator (parallel run). The images are
+# private; Periphery authenticates to GHCR via the `docker login` in pre_deploy
+# below (no Komodo registry account is involved).
 [[stack]]
 name = "beerbot"
 deploy = true
@@ -145,22 +155,43 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/beerbot"
 file_paths = ["docker-compose.yml"]
-# Repository reconciliation uses the already present images; the dedicated
-# Global Auto Update job owns digest pulls and avoids Docker Hub rate-limit
-# failures blocking secret/config-only deploys.
-auto_pull = false
+# MUST stay true (the Komodo default). `auto_pull` gates the ONLY `docker compose
+# pull` in Komodo's deploy path — with it false, a deploy runs `compose up -d`
+# against whatever `:latest` the host already holds, and Compose's default `up`
+# pull policy is `missing`, so a new image is never fetched. Since
+# `destroy_before_deploy` is false, Compose then sees an identical image+config
+# and does not even recreate the container: the deploy is a silent no-op.
+#
+# That is not hypothetical. This was `false` until 2026-08-09, and the effect was
+# that the running digest never changed, so the poller reported "update available"
+# forever: Komodo fired an Auto Redeploy every 15 minutes round the clock (141 in
+# 72h) and every one of them did nothing. New CI images only ever reached prod
+# when someone clicked Pull + Deploy by hand.
+#
+# It was set false to keep Docker Hub off the critical path, because one 429
+# aborts the whole `compose pull`. That concern is real but is already handled
+# properly one layer down: the four Docker Hub images in this stack carry
+# `pull_policy: missing` (see the compose file), so the pull skips them without a
+# registry request. The flag was a redundant second mitigation that broke rollout.
+auto_pull = true
 # Private GHCR images — pre_deploy decrypts the repo-owned registry credential
 # and logs the Periphery Docker client in before Compose pulls images.
-# Auto-deploy on new images: Komodo polls GHCR for a new digest on the :latest
-# app images (using the registry account above) and redeploys when one appears —
-# so a CI push of a new image rolls out on its own, no webhook/CI hook needed.
+# Auto-deploy on new images: the Global Auto Update procedure HEAD-checks GHCR
+# every 15 minutes for a new digest on the :latest app images and redeploys when
+# one appears — so a CI push of a new image rolls out on its own, no webhook/CI
+# hook needed. Note that check only compares digests; the actual fetch is the
+# `compose pull` gated by auto_pull above, which is why that must stay true.
 # Only the services whose image changed are updated (pinned postgres/keycloak/minio
 # are untouched). Poll cadence = Core's default KOMODO_POLL_RATE.
 poll_for_updates = true
 auto_update = true
 # Keep stateful data services and their matching init jobs out of unattended
 # digest rollouts. Application and identity images still update automatically.
-auto_update_skip_services = ["beerbot-db", "beerbot-db-init", "beerbot-minio", "beerbot-minio-init"]
+# beerbot-keycloak-config is here for a different reason: its image is version-
+# pinned, so it can never have an update, but the poller still HEAD-requested it
+# on Docker Hub every 15 minutes and logged a 429 (144 failures in 72h) while
+# burning the lab's shared anonymous rate limit. Skipping it removes pure noise.
+auto_update_skip_services = ["beerbot-db", "beerbot-db-init", "beerbot-keycloak-config", "beerbot-minio", "beerbot-minio-init"]
 # Successful init/provision jobs are expected to exit and must not make the
 # steady-state stack appear unhealthy.
 ignore_services = ["beerbot-db-init", "beerbot-keycloak-config", "beerbot-minio-init", "beerbot-provision"]
@@ -177,8 +208,9 @@ ignore_services = ["beerbot-db-init", "beerbot-keycloak-config", "beerbot-minio-
 # to carry a hand-synced duplicate, which is a silent-drift trap — edit one, forget
 # the other, and the realm deploys stale with no error anywhere. CI rebuilds the
 # Keycloak image on scripts/keycloak/**, so the image always carries the current
-# realm. The explicit pull is required: the stack sets auto_pull = false, so
-# without it we would extract from whatever stale image the host happens to hold.
+# realm. The explicit pull is still required even though auto_pull is true:
+# pre_deploy runs BEFORE Compose's pull step, so without it we would extract the
+# realm from whatever stale image the host happens to hold at that moment.
 [stack.config.pre_deploy]
 path = ""
 shell_mode = true
