@@ -34,6 +34,20 @@ komodo.home.kki.berlin {
     reverse_proxy host.docker.internal:9120
 }
 
+vpn.home.kki.berlin {
+    encode gzip zstd
+    # wg-easy's web UI (add/remove VPN clients, download configs, QR codes).
+    # Shares proxy_net with caddy, so route by service name — same reason as the
+    # actual_server route above. wg-easy serves plain HTTP on :80 inside the
+    # network (INSECURE=true); TLS is terminated here.
+    #
+    # This login page is internet-facing on purpose: you must reach it to fetch a
+    # client config BEFORE you have a tunnel. wg-easy ships no rate limiting, so
+    # the admin password is 32 random chars (sops enc.env) and TOTP 2FA can be
+    # switched on in the UI.
+    reverse_proxy wg-easy:80
+}
+
 # --- beerbot (routed by service name over proxy_net; no host ports) ---
 beerbot.home.kki.berlin {
     encode gzip zstd

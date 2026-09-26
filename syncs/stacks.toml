@@ -40,6 +40,39 @@ path = ""
 shell_mode = true
 command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env'
 
+# wg-easy — WireGuard VPN + web UI for remote LAN access (SSH to um870, the
+# router UI, printers: everything not published through Caddy). The public
+# *.home.kki.berlin routes are unaffected; this only adds a private path.
+#
+# Deployed right after proxy because Caddy publishes its UI at
+# vpn.home.kki.berlin over proxy_net. First boot is unattended (INIT_* env in the
+# compose file + sops enc.env), so no browser wizard is needed and the VPN comes
+# up purely from Git.
+#
+# OPERATOR GATE: clients cannot handshake until UDP 51820 is forwarded from the
+# router to um870's LAN IP. Nothing in this repo can create that forward.
+[[stack]]
+name = "wg-easy"
+deploy = true
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/wg-easy"
+file_paths = ["docker-compose.yml"]
+# GHCR image, so unlike the caddy/beerbot Docker Hub images there is no shared
+# anonymous rate limit to protect — auto_pull can stay at Komodo's default true,
+# which is what actually makes a new digest roll out (see the beerbot note).
+auto_pull = true
+poll_for_updates = true
+auto_update = true
+[stack.config.pre_deploy]
+path = ""
+shell_mode = true
+command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env'
+
 [[stack]]
 name = "mqtt"
 deploy = true

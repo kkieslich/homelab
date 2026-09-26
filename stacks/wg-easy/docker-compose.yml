@@ -1,0 +1,61 @@
+name: "wg-easy"
+# WireGuard VPN with a web UI, for remote access to the 192.168.1.0/24 LAN
+# (SSH to the server, router UI, printers, anything not published via Caddy).
+#
+# This stack is deliberately NOT a replacement for the public *.home.kki.berlin
+# routes — BeerBot and friends stay publicly reachable through Caddy. The VPN
+# only adds a private path to things that are not published at all.
+#
+# REQUIRES a router port forward: UDP 51820 -> um870's LAN IP. Nothing else in
+# this repo can create that, and without it clients will never handshake.
+services:
+  wg-easy:
+    # Pinned to the v15 major so Global Auto Update tracks 15.x patches but
+    # never jumps a major (v14 -> v15 was a breaking config rewrite).
+    image: ghcr.io/wg-easy/wg-easy:15
+    container_name: wg-easy
+    restart: unless-stopped
+    env_file:
+      # INIT_USERNAME / INIT_PASSWORD, decrypted from enc.env by pre_deploy.
+      - path: ./.env
+        required: true
+    environment:
+      # Serve the UI as plain HTTP on :80 inside proxy_net; Caddy terminates TLS
+      # for vpn.home.kki.berlin. INSECURE only disables wg-easy's own
+      # HTTPS-or-nothing check — the public hop is still HTTPS via Caddy.
+      - PORT=80
+      - INSECURE=true
+      # proxy_net is IPv4-only, so skip the IPv6 interface + firewall rules.
+      - DISABLE_IPV6=true
+      # Unattended first-boot setup: skips the browser wizard entirely, so the
+      # whole VPN is declarative. These are read ONLY on the first start, once
+      # /persist/appdata/wg-easy is empty; afterwards the UI owns the config and
+      # changing them here has no effect.
+      - INIT_ENABLED=true
+      - INIT_HOST=vpn.home.kki.berlin
+      - INIT_PORT=51820
+      - INIT_DNS=1.1.1.1,8.8.8.8
+      # Split tunnel: only the VPN subnet and the home LAN go through the
+      # tunnel, so normal internet traffic keeps using whatever network the
+      # client is on. Flip a single client to a full tunnel (exit node) in the
+      # UI by adding 0.0.0.0/0 to its Allowed IPs — no redeploy needed.
+      - INIT_ALLOWED_IPS=10.8.0.0/24,192.168.1.0/24
+    ports:
+      # Only the WireGuard handshake/data port is published. The UI is reached
+      # through Caddy over proxy_net, never on a host port.
+      - "51820:51820/udp"
+    volumes:
+      # Peer keys and config live on the host, outside Komodo's clone dir, so
+      # clients survive container recreation (repo convention).
+      - /persist/appdata/wg-easy:/etc/wireguard
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+    networks:
+      - proxy_net
+
+networks:
+  proxy_net:
+    external: true

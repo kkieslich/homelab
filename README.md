@@ -12,6 +12,7 @@ target host and runs `docker compose` from each stack's directory.
 ```
 stacks/     one directory per stack (compose file + build contexts/config)
   proxy/            Caddy reverse proxy for *.home.kki.berlin
+  wg-easy/          WireGuard VPN + web UI for remote LAN access
   mqtt/             Mosquitto
   home-assistant/   Home Assistant + Matter (host network)
   music-assistant/  Music Assistant (host network)

@@ -16,6 +16,7 @@ AUTO_UPDATE_STACKS = {
     "mqtt",
     "music-assistant",
     "proxy",
+    "wg-easy",
 }
 BEERBOT_STATEFUL_SERVICES = {
     "beerbot-db",
