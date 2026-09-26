@@ -73,6 +73,11 @@ services:
         ln -sf /usr/sbin/ip6tables-nft-save    /etc/alternatives/ip6tables-save
         exec docker-entrypoint.sh "$$@"
       - --
+    # Overriding `entrypoint` in Compose CLEARS the image's default CMD, so it
+    # must be restored here or docker-entrypoint.sh runs with no args, exits 0,
+    # and the container restart-loops. This is the image's own CMD verbatim
+    # (ghcr.io/wg-easy/wg-easy:15) and is passed to the wrapper above as "$@".
+    command: ["/usr/bin/dumb-init", "node", "server/index.mjs"]
     networks:
       - proxy_net
 
