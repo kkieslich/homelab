@@ -19,6 +19,7 @@ stacks/     one directory per stack (compose file + build contexts/config)
   ledfx/            LedFx (host network)
   monitoring/       Prometheus, Grafana, exporters, speedtest
   actual/           Actual Budget + FinTS bridge + SQLite sync
+  doctolib-watch/   Doctolib appointment watcher → ntfy push (config is SOPS)
 syncs/      Komodo GitOps resource definitions (TOML)
   servers.toml      managed hosts (Periphery)
   stacks.toml       one [[stack]] per stack, pinned to a server

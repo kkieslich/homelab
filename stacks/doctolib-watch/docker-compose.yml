@@ -1,0 +1,25 @@
+name: "doctolib-watch"
+
+# Polls Doctolib for a free appointment slot and pushes it to the phone via
+# ntfy. Headless: no sound, no dialog; the push *is* the alarm.
+#
+# What is watched (practice, motive, time window, booking URL) is personal and
+# this repo is public, so it arrives as config.json.enc and is decrypted by
+# pre_deploy. The ntfy topic, the only thing keeping the pushes private, comes
+# from enc.env as NTFY_TOPIC.
+
+services:
+  doctolib-watch:
+    build: .
+    container_name: doctolib-watch
+    restart: unless-stopped
+    env_file:
+      - path: ./.env
+    environment:
+      # POSIX rule rather than a zone name: the slim image ships no tzdata.
+      # Sets the log clock and which day counts as "today" for the search.
+      - TZ=CET-1CEST,M3.5.0,M10.5.0/3
+    volumes:
+      - ./config.json:/config/config.json:ro
+      # state.json: what it last saw, snooze, failure count, slot history.
+      - /persist/appdata/doctolib-watch:/data

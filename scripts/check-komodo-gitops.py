@@ -58,6 +58,16 @@ def main() -> int:
     if sendspin.get("poll_for_updates") or sendspin.get("auto_update"):
         errors.append("sendspin: locally built image must not use registry polling")
 
+    doctolib = by_name["doctolib-watch"]["config"]
+    if doctolib.get("poll_for_updates") or doctolib.get("auto_update"):
+        errors.append("doctolib-watch: locally built image must not use registry polling")
+    # The repo is public; what is watched must only ever be committed encrypted.
+    if "config.json.enc" not in doctolib.get("pre_deploy", {}).get("command", ""):
+        errors.append("doctolib-watch: pre_deploy must decrypt config.json.enc")
+    ignored = (ROOT / "stacks" / "doctolib-watch" / ".gitignore").read_text().split()
+    if "config.json" not in ignored or ".env" not in ignored:
+        errors.append("doctolib-watch: decrypted config.json and .env must be gitignored")
+
     beerbot = by_name["beerbot"]["config"]
     # auto_pull gates the only `compose pull` in Komodo's deploy path. With it
     # false the stack redeploys every 15 minutes against the cached :latest and

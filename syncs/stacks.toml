@@ -268,3 +268,26 @@ branch = "main"
 run_directory = "stacks/sendspin"
 file_paths = ["docker-compose.yml"]
 run_build = true
+
+# Doctolib watcher — polls a booking page every 2 minutes and pushes a free
+# slot to the phone via ntfy. Moved off the Mac, where launchd only ran while
+# the lid was open (~6% coverage). Locally built from stacks/doctolib-watch
+# (no registry image, so no digest polling); run_build rebuilds on a push that
+# changes watch.py. What is watched is personal and this repo is public, so the
+# config and the ntfy topic are both SOPS ciphertext, decrypted here.
+[[stack]]
+name = "doctolib-watch"
+deploy = true
+tags = ["prod", "um870"]
+[stack.config]
+server = "um870"
+git_provider = "github.com"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/doctolib-watch"
+file_paths = ["docker-compose.yml"]
+run_build = true
+[stack.config.pre_deploy]
+path = ""
+shell_mode = true
+command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env && SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary config.json.enc > config.json && chmod 644 config.json'

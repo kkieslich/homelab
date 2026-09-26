@@ -1,0 +1,3 @@
+# Deploy-time decrypted plaintext (from enc.env / config.json.enc) — never commit.
+.env
+config.json
