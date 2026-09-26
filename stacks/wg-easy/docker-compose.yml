@@ -53,6 +53,26 @@ services:
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
+    # The um870 runs a pure-nftables kernel: the legacy `iptable_nat` module does
+    # not exist and cannot be modprobed. wg-easy's image defaults its `iptables`
+    # alternative to iptables-LEGACY, so wg-quick's PostUp MASQUERADE fails with
+    # "can't initialize iptables table `nat': Table does not exist". The image
+    # also ships iptables-nft (xtables-nft-multi), which DOES work against this
+    # kernel. Repoint the alternatives to the nft backend before the normal
+    # entrypoint runs. Baked in here (not done by hand on the host) so it
+    # survives every Komodo redeploy/recreation. CMD flows through as "$$@".
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        ln -sf /usr/sbin/iptables-nft          /etc/alternatives/iptables
+        ln -sf /usr/sbin/iptables-nft-restore  /etc/alternatives/iptables-restore
+        ln -sf /usr/sbin/iptables-nft-save     /etc/alternatives/iptables-save
+        ln -sf /usr/sbin/ip6tables-nft         /etc/alternatives/ip6tables
+        ln -sf /usr/sbin/ip6tables-nft-restore /etc/alternatives/ip6tables-restore
+        ln -sf /usr/sbin/ip6tables-nft-save    /etc/alternatives/ip6tables-save
+        exec docker-entrypoint.sh "$$@"
+      - --
     networks:
       - proxy_net
 
