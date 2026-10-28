@@ -17,7 +17,7 @@ The UM870 is **temporarily at a friend's place** behind a FritzBox on Vodafone
 `*.home.kki.berlin` records in Cloudflare still point at the old home line.
 
 Running on the UM870: **proxy (Caddy), Komodo** (beerbot moved to the VPS on
-2026-10-28; the UM870's leftover beerbot stack should be destroyed). Everything else is
+2026-10-28). Everything else is
 **TEMP-DISABLED** in `syncs/stacks.toml` (`deploy`, `poll_for_updates`,
 `auto_update` set to `false`) and was destroyed via Komodo `DestroyStack`
 (data in `/persist` and named volumes is untouched): wg-easy, mqtt,
@@ -26,30 +26,25 @@ doctolib-watch. To restore: flip those flags back to `true`, push, and let the
 sync deploy them (or `DeployStack`). Monitoring's OpenWRT (`192.168.1.1/.2`)
 and TC4400 (`192.168.100.1`) targets only exist at the old home.
 
-## BeerBot hosting (in transition)
+## BeerBot hosting (both versions on the Contabo VPS since 2026-10-28)
 
-- **Old prod** (pre-Expo version, live users): the old Contabo VPS behind
-  `beerbot.app`. Deployed by a self-hosted GitHub actions-runner running
-  `docker compose` from its work dir; images are built locally there (no
-  registry), Traefik in front. Hostnames `beerbot.app`, `api.`, `auth.` (DNS on
-  Cloudflare). Outdated; being retired.
-- **New version** (Expo app, testers only): `stacks/beerbot`, **live on the new
-  Contabo VPS since 2026-10-28** (`*.home.kki.berlin` points there). The VPS runs
-  its own Komodo (`/opt/komodo`, UI on localhost:9120 via SSH tunnel) that syncs
-  only `syncs/vps/` (stacks `vps-proxy` + `beerbot`). Picture storage is **Garage**
-  (`beerbot-s3`), set up by the stack's post_deploy hook; MinIO was dropped
-  because its images are no longer published. `beerbot-migrator` forward-syncs
-  old prod data over an SSH tunnel (`old-vps.key.enc`).
-- **Next:** move the old instance onto the same VPS. Plan (decided 2026-10-28): a new **Contabo Cloud VPS 4** (4 vCPU / 8 GB,
-  x86, 12-month term) hosts **both** the old instance (frozen, images copied over,
-  DB dumped/restored, auth server's mounted key files copied) and the new stack,
-  behind one Caddy. Cut old users over by switching the `beerbot.app` A records,
-  keep the old VPS 1–2 weeks as rollback, then cancel it. Retire the old instance
-  only after the new app is through App Store review. Komodo Core on the UM870
-  cannot reach a remote VPS from behind DS-Lite without Tailscale or similar —
-  decide how the VPS is managed when setting it up.
-- The images are under the owner's control; ARM builds are possible but were not
-  cheaper in 2026 pricing.
+The VPS (`root@167.86.127.81`) runs its own Komodo (`/opt/komodo`; UI on
+localhost:9120 via `ssh -L`) that syncs only `syncs/vps/`:
+
+- **vps-proxy** — Caddy for every public beerbot hostname.
+- **beerbot** — the new (Expo) version on `*.beerbot.home.kki.berlin`. Pictures
+  live in **Garage** (`beerbot-s3`), set up by the stack's post_deploy hook;
+  MinIO was dropped because its images are no longer published.
+  `beerbot-migrator` forward-syncs from the legacy DB directly over proxy_net.
+- **beerbot-legacy** — the old (pre-Expo) version, frozen, on `beerbot.app`,
+  `api.`, `auth.`, `open.` (open was dead for a long time: missing DNS record).
+  Images are local-only `beerbot-legacy/*` tags on the VPS — never rebuilt or
+  pulled. Postgres must stay named `db` (hardcoded in the images); the auth
+  server's signing certs are SOPS files beside the stack. Retire it once the new
+  app is through App Store review.
+
+The old Contabo VPS (194.163.165.188, no DNS pointing at it anymore) keeps its
+stopped app containers and DB as a rollback for 1–2 weeks, then gets cancelled.
 
 ## Cross-stack architecture (when everything runs at home)
 
