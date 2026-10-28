@@ -53,7 +53,9 @@ command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d
 # router to um870's LAN IP. Nothing in this repo can create that forward.
 [[stack]]
 name = "wg-easy"
-deploy = true
+# TEMP-DISABLED 2026-10-28: box is at a temporary home, only beerbot (+proxy) runs.
+# To restore: set deploy/poll_for_updates/auto_update back to true and redeploy.
+deploy = false
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -66,8 +68,8 @@ file_paths = ["docker-compose.yml"]
 # anonymous rate limit to protect — auto_pull can stay at Komodo's default true,
 # which is what actually makes a new digest roll out (see the beerbot note).
 auto_pull = true
-poll_for_updates = true
-auto_update = true
+poll_for_updates = false
+auto_update = false
 [stack.config.pre_deploy]
 path = ""
 shell_mode = true
@@ -75,7 +77,9 @@ command = 'K=/var/lib/komodo-periphery/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d
 
 [[stack]]
 name = "mqtt"
-deploy = true
+# TEMP-DISABLED 2026-10-28: box is at a temporary home, only beerbot (+proxy) runs.
+# To restore: set deploy/poll_for_updates/auto_update back to true and redeploy.
+deploy = false
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -84,12 +88,14 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/mqtt"
 file_paths = ["docker-compose.yml"]
-poll_for_updates = true
-auto_update = true
+poll_for_updates = false
+auto_update = false
 
 [[stack]]
 name = "home-assistant"
-deploy = true
+# TEMP-DISABLED 2026-10-28: box is at a temporary home, only beerbot (+proxy) runs.
+# To restore: set deploy/poll_for_updates/auto_update back to true and redeploy.
+deploy = false
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -98,12 +104,14 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/home-assistant"
 file_paths = ["docker-compose.yml"]
-poll_for_updates = true
-auto_update = true
+poll_for_updates = false
+auto_update = false
 
 [[stack]]
 name = "music-assistant"
-deploy = true
+# TEMP-DISABLED 2026-10-28: box is at a temporary home, only beerbot (+proxy) runs.
+# To restore: set deploy/poll_for_updates/auto_update back to true and redeploy.
+deploy = false
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -115,12 +123,14 @@ file_paths = ["docker-compose.yml"]
 # Auto-deploy on new images (your own fork). GlobalAutoUpdate (driven by the
 # host's komodo-autoupdate systemd timer) pulls ghcr.io/kkieslich/music-assistant
 # and redeploys when the digest changes.
-poll_for_updates = true
-auto_update = true
+poll_for_updates = false
+auto_update = false
 
 [[stack]]
 name = "ledfx"
-deploy = true
+# TEMP-DISABLED 2026-10-28: box is at a temporary home, only beerbot (+proxy) runs.
+# To restore: set deploy/poll_for_updates/auto_update back to true and redeploy.
+deploy = false
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -129,12 +139,14 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/ledfx"
 file_paths = ["docker-compose.yaml"]
-poll_for_updates = true
-auto_update = true
+poll_for_updates = false
+auto_update = false
 
 [[stack]]
 name = "monitoring"
-deploy = true
+# TEMP-DISABLED 2026-10-28: box is at a temporary home, only beerbot (+proxy) runs.
+# To restore: set deploy/poll_for_updates/auto_update back to true and redeploy.
+deploy = false
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -143,12 +155,14 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/monitoring"
 file_paths = ["docker-compose.yml"]
-poll_for_updates = true
-auto_update = true
+poll_for_updates = false
+auto_update = false
 
 [[stack]]
 name = "actual"
-deploy = true
+# TEMP-DISABLED 2026-10-28: box is at a temporary home, only beerbot (+proxy) runs.
+# To restore: set deploy/poll_for_updates/auto_update back to true and redeploy.
+deploy = false
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -157,8 +171,8 @@ repo = "kkieslich/homelab"
 branch = "main"
 run_directory = "stacks/actual"
 file_paths = ["docker-compose.yml"]
-poll_for_updates = true
-auto_update = true
+poll_for_updates = false
+auto_update = false
 # The fints images and actual_db_sync are built from this repository and have
 # no remote registry digest. run_build makes every deploy run `docker compose
 # build` first (a layer-cache no-op when sources are unchanged), so a git push
@@ -258,7 +272,9 @@ command = '''set -eu; K=/var/lib/komodo-periphery/age-key.txt; R=.registry.env; 
 # (layer-cache no-op unless the Dockerfile/source changed).
 [[stack]]
 name = "sendspin"
-deploy = true
+# TEMP-DISABLED 2026-10-28: box is at a temporary home, only beerbot (+proxy) runs.
+# To restore: set deploy/poll_for_updates/auto_update back to true and redeploy.
+deploy = false
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
@@ -277,7 +293,9 @@ run_build = true
 # config and the ntfy topic are both SOPS ciphertext, decrypted here.
 [[stack]]
 name = "doctolib-watch"
-deploy = true
+# TEMP-DISABLED 2026-10-28: box is at a temporary home, only beerbot (+proxy) runs.
+# To restore: set deploy/poll_for_updates/auto_update back to true and redeploy.
+deploy = false
 tags = ["prod", "um870"]
 [stack.config]
 server = "um870"
