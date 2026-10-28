@@ -262,7 +262,11 @@ services:
     networks: [proxy_net]
 
   beerbot-minio-init:
-    image: minio/mc:latest
+    # MinIO stopped publishing images (minio/mc and minio/minio are gone from
+    # Docker Hub and quay.io as of 2026-10). The server image already ships
+    # /bin/sh and /usr/bin/mc, which is all this job needs, so reuse it rather
+    # than depend on a second image that can no longer be pulled.
+    image: minio/minio:latest
     pull_policy: missing
     container_name: beerbot-minio-init
     depends_on:
