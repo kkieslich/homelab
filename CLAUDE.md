@@ -16,7 +16,8 @@ The UM870 is **temporarily at a friend's place** behind a FritzBox on Vodafone
 **DS-Lite** (no inbound IPv4). Nothing on it is publicly reachable, and the
 `*.home.kki.berlin` records in Cloudflare still point at the old home line.
 
-Running on the UM870: **beerbot, proxy (Caddy), Komodo**. Everything else is
+Running on the UM870: **proxy (Caddy), Komodo** (beerbot moved to the VPS on
+2026-10-28; the UM870's leftover beerbot stack should be destroyed). Everything else is
 **TEMP-DISABLED** in `syncs/stacks.toml` (`deploy`, `poll_for_updates`,
 `auto_update` set to `false`) and was destroyed via Komodo `DestroyStack`
 (data in `/persist` and named volumes is untouched): wg-easy, mqtt,
@@ -32,10 +33,14 @@ and TC4400 (`192.168.100.1`) targets only exist at the old home.
   `docker compose` from its work dir; images are built locally there (no
   registry), Traefik in front. Hostnames `beerbot.app`, `api.`, `auth.` (DNS on
   Cloudflare). Outdated; being retired.
-- **New version** (Expo app, testers only): `stacks/beerbot` here, on the UM870,
-  hostnames `*.beerbot.home.kki.berlin`. `beerbot-migrator` forward-syncs old prod
-  data over an SSH tunnel (`old-vps.key.enc`).
-- **Plan (decided 2026-10-28):** a new **Contabo Cloud VPS 4** (4 vCPU / 8 GB,
+- **New version** (Expo app, testers only): `stacks/beerbot`, **live on the new
+  Contabo VPS since 2026-10-28** (`*.home.kki.berlin` points there). The VPS runs
+  its own Komodo (`/opt/komodo`, UI on localhost:9120 via SSH tunnel) that syncs
+  only `syncs/vps/` (stacks `vps-proxy` + `beerbot`). Picture storage is **Garage**
+  (`beerbot-s3`), set up by the stack's post_deploy hook; MinIO was dropped
+  because its images are no longer published. `beerbot-migrator` forward-syncs
+  old prod data over an SSH tunnel (`old-vps.key.enc`).
+- **Next:** move the old instance onto the same VPS. Plan (decided 2026-10-28): a new **Contabo Cloud VPS 4** (4 vCPU / 8 GB,
   x86, 12-month term) hosts **both** the old instance (frozen, images copied over,
   DB dumped/restored, auth server's mounted key files copied) and the new stack,
   behind one Caddy. Cut old users over by switching the `beerbot.app` A records,
