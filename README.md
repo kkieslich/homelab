@@ -1,11 +1,15 @@
 # homelab
 
 Docker Compose stacks for the home lab, deployed by **[Komodo](https://komo.do)**
-across one or more hosts (the Minisforum UM870 now; a Raspberry Pi later).
+across one or more hosts (currently the Minisforum UM870).
 
 Komodo Core runs on the UM870 (bootstrapped by NixOS via `oci-containers`); a
 Periphery agent runs on each managed host. Komodo clones this repo onto the
 target host and runs `docker compose` from each stack's directory.
+
+> **Current state (since 2026-10-28):** the UM870 is temporarily at a friend's
+> place behind DS-Lite. Only beerbot and proxy run; all other stacks are
+> TEMP-DISABLED in `syncs/stacks.toml`. See `CLAUDE.md`.
 
 ## Layout
 

@@ -23,7 +23,7 @@ place to change finance data. Grafana and SQLite are read-only checks.
 5. Enter the smsTAN through SSH:
 
    ```sh
-   ssh -t kolja@192.168.1.20
+   ssh -t kolja@livingroom-server.local
    sudo docker attach fints_daemon_baader
    ```
 
@@ -48,7 +48,7 @@ two purchases. Resolve only the currently displayed candidate key, first as a
 dry run and then with `--apply`:
 
 ```sh
-ssh -t kolja@192.168.1.20
+ssh -t kolja@livingroom-server.local
 sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs duplicate-resolution \
   --snapshot=/db/actual.sqlite --candidate-key=duplicate_candidate:KEY \
   --resolution=intentional_repeat --note="two separate receipts" \

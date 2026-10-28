@@ -6,6 +6,9 @@ here as a Komodo stack; **live prod data is forward-synced from the old prod** b
 the `beerbot-migrator` service (parallel run), so this is a real testing instance,
 not an empty one.
 
+> **Hosting is in transition (2026-10-28):** this stack is moving off the UM870
+> to a Contabo VPS together with the old prod instance. See `../../CLAUDE.md`.
+
 ## Services
 
 `beerbot-api`, `beerbot-admin-api`, `beerbot-web`, `beerbot-admin-web`,

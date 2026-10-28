@@ -118,7 +118,7 @@ The CLI is dry-run by default. From a local terminal, connect to the server and
 run it in the existing projection container; inspect the reported row counts:
 
 ```sh
-ssh -t kolja@192.168.1.20
+ssh -t kolja@livingroom-server.local
 sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs month-close \
   --month=YYYY-MM --snapshot=/db/actual.sqlite
 ```

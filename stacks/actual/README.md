@@ -156,7 +156,7 @@ no raw transactions, payees, credentials, IBANs, or source account identifiers.
 After restarting the daemon, wait for `Enter TAN:` in its logs, then attach:
 
 ```sh
-ssh -t kolja@192.168.1.20
+ssh -t kolja@livingroom-server.local
 sudo docker attach fints_daemon_baader
 ```
 
@@ -311,7 +311,7 @@ minutes makes canonical safe-to-spend `NULL`, never a trusted zero.
 The month-close CLI is dry-run by default:
 
 ```sh
-ssh -t kolja@192.168.1.20
+ssh -t kolja@livingroom-server.local
 sudo docker exec actual_db_sync node /app/cli/bin/actual.mjs month-close \
   --month=YYYY-MM --snapshot=/db/actual.sqlite
 ```
