@@ -46,6 +46,8 @@ services:
       <<: *minio-env
       AUTH_ISSUER: https://auth.beerbot.home.kki.berlin/realms/beerbot
       API_AUDIENCE: beerbot-api
+      # Account deletion removes the Keycloak user via the admin API (KEYCLOAK_ADMIN_* from .env).
+      KEYCLOAK_BASE_URL: http://beerbot-keycloak:8080
       APP_WEB_ORIGINS: https://beerbot.home.kki.berlin
       MINIO_PRESIGNED_URL_TTL_HOURS: "24"
       # Push notifications ON. Safe on this parallel-run instance: old device tokens
