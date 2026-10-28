@@ -1,0 +1,28 @@
+name: "vps-proxy"
+
+services:
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    # Config is mounted as a directory so a git-pulled Caddyfile (new inode) is
+    # seen by --watch.
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --watch
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - data:/data
+      - config:/config
+    networks:
+      - proxy_net
+
+volumes:
+  data:
+  config:
+
+networks:
+  proxy_net:
+    external: true

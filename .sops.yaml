@@ -11,7 +11,15 @@
 #     --filename-override stacks/<stack>/enc.env <plaintext.env> > stacks/<stack>/enc.env
 keys:
   - &um870 age1tvatp8kd467s8xhu29l83zhf4w0jr8hsz6hv9jwrz48t5q7305pqw92st3
+  # Contabo VPS that hosts beerbot (private key: /etc/komodo/age-key.txt there).
+  - &vps age1y39ne0da5atqzu829u5879pjcchtltkqrm55jawrvun00m2zrcrqxuq6e0
 creation_rules:
+  # Stacks deployed on the VPS: encrypt to both, so either host can decrypt.
+  - path_regex: stacks/(beerbot|vps-proxy|beerbot-legacy)/.*(enc\.env|\.enc)$
+    key_groups:
+      - age:
+          - *um870
+          - *vps
   - path_regex: (.*/)?enc\.env$
     key_groups:
       - age:

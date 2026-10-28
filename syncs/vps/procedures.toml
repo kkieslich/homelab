@@ -1,0 +1,45 @@
+# Komodo procedures for the beerbot VPS (applied by the "beerbot-vps" sync).
+
+[[procedure]]
+name = "GitOps - Reconcile beerbot-vps"
+description = "Fetches main, applies syncs/vps, and deploys stacks whose desired state changed."
+tags = ["system", "gitops"]
+config.schedule = "every 5 minutes"
+config.schedule_enabled = true
+
+[[procedure.config.stage]]
+name = "Apply desired state"
+enabled = true
+executions = [
+  { execution.type = "RunSync", execution.params.sync = "beerbot-vps", enabled = true },
+]
+
+[[procedure]]
+name = "GitOps - Refresh proxy"
+description = "Refreshes the vps-proxy Git clone so Caddy --watch sees Caddyfile changes."
+tags = ["system", "gitops"]
+config.schedule = "every 5 minutes"
+config.schedule_enabled = true
+
+[[procedure.config.stage]]
+name = "Deploy vps-proxy idempotently"
+enabled = true
+executions = [
+  { execution.type = "DeployStack", execution.params.stack = "vps-proxy", enabled = true },
+]
+
+# New beerbot images from CI roll out within 15 minutes (see the beerbot stack
+# notes on auto_pull).
+[[procedure]]
+name = "Global Auto Update"
+description = "Pulls and auto updates Stacks and Deployments using 'poll_for_updates' or 'auto_update'."
+tags = ["system"]
+config.schedule = "every 15 minutes"
+config.schedule_enabled = true
+
+[[procedure.config.stage]]
+name = "Stage 1"
+enabled = true
+executions = [
+  { execution.type = "GlobalAutoUpdate", execution.params.skip_auto_update = false, enabled = true },
+]

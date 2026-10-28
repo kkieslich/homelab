@@ -1,0 +1,41 @@
+# Caddy on the beerbot VPS. Every backend shares proxy_net with caddy and is
+# routed by service name. The old (pre-Expo) beerbot.app hostnames get added
+# here when that instance moves over.
+
+# --- beerbot (routed by service name over proxy_net; no host ports) ---
+beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-web:80
+}
+
+api.beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-api:80
+}
+
+auth.beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-keycloak:8080
+}
+
+admin.beerbot.home.kki.berlin {
+    encode gzip zstd
+    # /api/* → admin API with the /api prefix stripped (handle_path); everything
+    # else → the admin SPA.
+    handle_path /api/* {
+        reverse_proxy beerbot-admin-api:80
+    }
+    handle {
+        reverse_proxy beerbot-admin-web:80
+    }
+}
+
+cdn.beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-minio:9000
+}
+
+www.beerbot.home.kki.berlin {
+    encode gzip zstd
+    reverse_proxy beerbot-landing:80
+}

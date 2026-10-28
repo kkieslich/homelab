@@ -48,40 +48,4 @@ vpn.home.kki.berlin {
     reverse_proxy wg-easy:80
 }
 
-# --- beerbot (routed by service name over proxy_net; no host ports) ---
-beerbot.home.kki.berlin {
-    encode gzip zstd
-    reverse_proxy beerbot-web:80
-}
-
-api.beerbot.home.kki.berlin {
-    encode gzip zstd
-    reverse_proxy beerbot-api:80
-}
-
-auth.beerbot.home.kki.berlin {
-    encode gzip zstd
-    reverse_proxy beerbot-keycloak:8080
-}
-
-admin.beerbot.home.kki.berlin {
-    encode gzip zstd
-    # /api/* → admin API with the /api prefix stripped (handle_path); everything
-    # else → the admin SPA.
-    handle_path /api/* {
-        reverse_proxy beerbot-admin-api:80
-    }
-    handle {
-        reverse_proxy beerbot-admin-web:80
-    }
-}
-
-cdn.beerbot.home.kki.berlin {
-    encode gzip zstd
-    reverse_proxy beerbot-minio:9000
-}
-
-www.beerbot.home.kki.berlin {
-    encode gzip zstd
-    reverse_proxy beerbot-landing:80
-}
+# beerbot is served by the VPS (stacks/vps-proxy) since 2026-10-28.
