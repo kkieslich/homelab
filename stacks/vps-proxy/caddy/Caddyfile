@@ -2,26 +2,60 @@
 # routed by service name. The old (pre-Expo) beerbot.app hostnames get added
 # here when that instance moves over.
 
-# --- beerbot (routed by service name over proxy_net; no host ports) ---
-beerbot.home.kki.berlin {
+# --- beerbot production (stacks/beerbot, new Expo app) ---
+# api. and auth. are SHARED with the legacy app (stacks/beerbot-legacy) until it is
+# retired: the old app hardcodes https://api.beerbot.app and https://auth.beerbot.app.
+#   api.  — every new-app request carries X-Client-Platform (and its CORS preflight
+#           lists it in Access-Control-Request-Headers) → new API; anything else → legacy.
+#   auth. — Keycloak lives under /realms, /resources, /js, /admin; the legacy auth
+#           server uses /connect, /.well-known, /Account → everything else → legacy.
+# When legacy is retired: drop the legacy handles and the beerbot.app legacy block below.
+beerbot.app {
+    encode gzip zstd
+    reverse_proxy beerbot-landing:80
+}
+
+www.beerbot.app {
+    redir https://beerbot.app{uri} permanent
+}
+
+app.beerbot.app {
     encode gzip zstd
     reverse_proxy beerbot-web:80
 }
 
-api.beerbot.home.kki.berlin {
+api.beerbot.app {
     encode gzip zstd
-    reverse_proxy beerbot-api:80
+    @newapp header X-Client-Platform *
+    @newpreflight {
+        method OPTIONS
+        header_regexp Access-Control-Request-Headers (?i)x-client-platform
+    }
+    handle @newapp {
+        reverse_proxy beerbot-api:80
+    }
+    handle @newpreflight {
+        reverse_proxy beerbot-api:80
+    }
+    handle {
+        reverse_proxy beerbot-legacy-api:80
+    }
 }
 
-auth.beerbot.home.kki.berlin {
+auth.beerbot.app {
     encode gzip zstd
-    reverse_proxy beerbot-keycloak:8080
+    @keycloak path /realms/* /resources/* /js/* /admin/*
+    handle @keycloak {
+        reverse_proxy beerbot-keycloak:8080
+    }
+    handle {
+        reverse_proxy beerbot-legacy-auth:80
+    }
 }
 
-admin.beerbot.home.kki.berlin {
+admin.beerbot.app {
     encode gzip zstd
-    # /api/* → admin API with the /api prefix stripped (handle_path); everything
-    # else → the admin SPA.
+    # /api/* → admin API with the /api prefix stripped; everything else → the admin SPA.
     handle_path /api/* {
         reverse_proxy beerbot-admin-api:80
     }
@@ -30,39 +64,32 @@ admin.beerbot.home.kki.berlin {
     }
 }
 
-cdn.beerbot.home.kki.berlin {
+cdn.beerbot.app {
     encode gzip zstd
     reverse_proxy beerbot-s3:3900
 }
 
-www.beerbot.home.kki.berlin {
-    encode gzip zstd
-    reverse_proxy beerbot-landing:80
+# Old test hostnames → their production equivalents (tester builds from before the
+# cutover stop authenticating anyway: Keycloak's issuer is auth.beerbot.app now).
+beerbot.home.kki.berlin, www.beerbot.home.kki.berlin {
+    redir https://app.beerbot.app{uri}
+}
+api.beerbot.home.kki.berlin {
+    redir https://api.beerbot.app{uri}
+}
+auth.beerbot.home.kki.berlin {
+    redir https://auth.beerbot.app{uri}
+}
+admin.beerbot.home.kki.berlin {
+    redir https://admin.beerbot.app{uri}
+}
+cdn.beerbot.home.kki.berlin {
+    redir https://cdn.beerbot.app{uri}
 }
 
 # --- old (pre-Expo) beerbot, stacks/beerbot-legacy ---
-beerbot.app {
-    encode gzip zstd
-    # The old Traefik set these on the landing page; kept for parity.
-    header Access-Control-Allow-Origin "*"
-    header Access-Control-Allow-Methods "GET,OPTIONS,PUT"
-    header Access-Control-Max-Age "100"
-    header Vary "Origin"
-    reverse_proxy beerbot-legacy-landing:80
-}
-
-api.beerbot.app {
-    encode gzip zstd
-    reverse_proxy beerbot-legacy-api:80
-}
-
-auth.beerbot.app {
-    encode gzip zstd
-    reverse_proxy beerbot-legacy-auth:80
-}
-
-# Web version of the old app. Was unreachable for a long time because the DNS
-# record was missing.
+# beerbot.app, api. and auth. are shared with production above. Only the old web app
+# keeps a hostname of its own.
 open.beerbot.app {
     encode gzip zstd
     reverse_proxy beerbot-legacy-open:80
