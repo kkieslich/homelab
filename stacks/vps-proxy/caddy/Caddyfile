@@ -39,3 +39,31 @@ www.beerbot.home.kki.berlin {
     encode gzip zstd
     reverse_proxy beerbot-landing:80
 }
+
+# --- old (pre-Expo) beerbot, stacks/beerbot-legacy ---
+beerbot.app {
+    encode gzip zstd
+    # The old Traefik set these on the landing page; kept for parity.
+    header Access-Control-Allow-Origin "*"
+    header Access-Control-Allow-Methods "GET,OPTIONS,PUT"
+    header Access-Control-Max-Age "100"
+    header Vary "Origin"
+    reverse_proxy beerbot-legacy-landing:80
+}
+
+api.beerbot.app {
+    encode gzip zstd
+    reverse_proxy beerbot-legacy-api:80
+}
+
+auth.beerbot.app {
+    encode gzip zstd
+    reverse_proxy beerbot-legacy-auth:80
+}
+
+# Web version of the old app. Was unreachable for a long time because the DNS
+# record was missing.
+open.beerbot.app {
+    encode gzip zstd
+    reverse_proxy beerbot-legacy-open:80
+}

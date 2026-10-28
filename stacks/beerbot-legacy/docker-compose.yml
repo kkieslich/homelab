@@ -1,0 +1,70 @@
+name: "beerbot-legacy"
+
+# Old (pre-Expo) BeerBot, frozen. Moved off the old Contabo VPS on 2026-10-28.
+# Its images were built locally there by a self-hosted actions-runner and never
+# pushed anywhere, so they exist only as local images on this host (loaded via
+# docker save/load and tagged beerbot-legacy/*). `pull_policy: never` keeps
+# Compose from looking for them in a registry. Do not rebuild or update this
+# stack: it only serves existing app users until the new version replaces it.
+#
+# The apps' connection strings are baked into the images as `server=db`, so the
+# Postgres service MUST stay named `db` on this stack's default network. It is
+# also on proxy_net as beerbot-legacy-db so the new stack's migrator can read it.
+# Public routes (beerbot.app, api., auth., open.) live in stacks/vps-proxy.
+
+services:
+  db:
+    image: postgres:14.1-alpine
+    pull_policy: missing
+    container_name: beerbot-legacy-db
+    user: postgres
+    restart: unless-stopped
+    env_file:
+      - path: ./.env
+    environment:
+      POSTGRES_USER: beerbot
+    volumes:
+      - db:/var/lib/postgresql/data
+    networks: [default, proxy_net]
+
+  authserver:
+    image: beerbot-legacy/authserver:2025-03-28
+    pull_policy: never
+    container_name: beerbot-legacy-auth
+    restart: unless-stopped
+    depends_on: [db]
+    # Token signing/encryption certificates: decrypted by pre_deploy. Losing them
+    # would invalidate every old-app session.
+    volumes:
+      - ./certs:/app/certs:ro
+    networks: [default, proxy_net]
+
+  api:
+    image: beerbot-legacy/api-app:2025-03-28
+    pull_policy: never
+    container_name: beerbot-legacy-api
+    restart: unless-stopped
+    depends_on: [db]
+    networks: [default, proxy_net]
+
+  # Web version of the old app (open.beerbot.app).
+  open-app:
+    image: beerbot-legacy/open-app:2025-03-28
+    pull_policy: never
+    container_name: beerbot-legacy-open
+    restart: unless-stopped
+    networks: [proxy_net]
+
+  landing:
+    image: beerbot-legacy/landingpage:2024-04-04
+    pull_policy: never
+    container_name: beerbot-legacy-landing
+    restart: unless-stopped
+    networks: [proxy_net]
+
+volumes:
+  db:
+
+networks:
+  proxy_net:
+    external: true

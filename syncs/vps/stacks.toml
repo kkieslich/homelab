@@ -108,3 +108,25 @@ command = '''set -eu; K=/etc/komodo/age-key.txt; R=.registry.env; trap 'rm -f "$
 path = ""
 shell_mode = true
 command = '''set -eu; G="docker exec beerbot-s3 /garage"; i=0; until $G status >/dev/null 2>&1; do i=$((i+1)); [ $i -lt 60 ] || { echo "garage not ready"; exit 1; }; sleep 1; done; if $G layout show 2>/dev/null | grep -q "Current cluster layout version: 0"; then N=$($G node id -q 2>/dev/null | cut -d@ -f1); $G layout assign -z dc1 -c 50G "$N" >/dev/null; $G layout apply --version 1 >/dev/null; echo "garage layout initialised"; fi; KID=$(sed -n "s/^MINIO_ROOT_USER=//p" .env | tr -d "\"\'"); KSEC=$(sed -n "s/^MINIO_ROOT_PASSWORD=//p" .env | tr -d "\"\'"); $G key info beerbot >/dev/null 2>&1 || $G key import --yes -n beerbot "$KID" "$KSEC" >/dev/null; $G bucket info beerbot >/dev/null 2>&1 || $G bucket create beerbot >/dev/null; $G bucket allow --read --write --owner beerbot --key beerbot >/dev/null; echo "garage ready: bucket beerbot, key beerbot"'''
+
+# Old (pre-Expo) BeerBot, frozen: serves existing app users on beerbot.app until
+# the new version replaces it. Images are local-only (beerbot-legacy/*, loaded
+# from the old VPS), so no pulling, polling or auto-updating.
+[[stack]]
+name = "beerbot-legacy"
+deploy = true
+tags = ["prod", "vps", "legacy"]
+[stack.config]
+server = "vps"
+git_provider = "github.com"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/beerbot-legacy"
+file_paths = ["docker-compose.yml"]
+auto_pull = false
+poll_for_updates = false
+auto_update = false
+[stack.config.pre_deploy]
+path = ""
+shell_mode = true
+command = 'set -eu; K=/etc/komodo/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env; mkdir -p certs; for f in signing-certificate encryption-certificate; do SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary $f.pfx.enc > certs/$f.pfx; chmod 644 certs/$f.pfx; done'
