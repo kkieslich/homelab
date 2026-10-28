@@ -32,7 +32,7 @@ admin.beerbot.home.kki.berlin {
 
 cdn.beerbot.home.kki.berlin {
     encode gzip zstd
-    reverse_proxy beerbot-minio:9000
+    reverse_proxy beerbot-s3:3900
 }
 
 www.beerbot.home.kki.berlin {

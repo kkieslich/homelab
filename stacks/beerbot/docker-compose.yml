@@ -12,7 +12,7 @@ name: "beerbot"
 #    repo only ever holds ciphertext and the host owns no beerbot env secret.
 #    See enc.env / the ownership-decoupling design; non-secret host-specific
 #    config (the *.home.kki.berlin URLs) stays inline below.
-#  - Data lives in named Docker volumes (db, minio) — Docker owns them, which
+#  - Data lives in named Docker volumes (db, garage) — Docker owns them, which
 #    also lets postgres chown its own data dir (a host bind mount cannot).
 #  - GHCR images are private: the `ghcr.io` registry account (created by
 #    komodo-bootstrap) authenticates the pull.
@@ -21,12 +21,12 @@ name: "beerbot"
 # pre_deploy. The root-running container copies the read-only source key to a
 # root-owned 0600 path before invoking OpenSSH.
 
-# Shared NON-SECRET MinIO endpoint config. Every backend service that talks to
-# MinIO reads these, so they are defined once here and merged into each service's
-# environment (via `<<: *minio-env`) — never in the secret. Only MINIO_ROOT_USER/
-# PASSWORD (real secrets) live in enc.env.
+# Shared NON-SECRET object-storage config. The variable names still say MINIO
+# because that is what the app reads; the store behind them is Garage (S3 API on
+# :3900). Merged into each service via `<<: *minio-env`. Only MINIO_ROOT_USER/
+# PASSWORD (Garage's access key id/secret) live in enc.env.
 x-minio-env: &minio-env
-  MINIO_ENDPOINT: http://beerbot-minio:9000
+  MINIO_ENDPOINT: http://beerbot-s3:3900
   MINIO_PUBLIC_ENDPOINT: https://cdn.beerbot.home.kki.berlin
   MINIO_BUCKET: beerbot
 
@@ -38,7 +38,7 @@ services:
     restart: unless-stopped
     depends_on:
       beerbot-db: { condition: service_healthy }
-      beerbot-minio: { condition: service_started }
+      beerbot-s3: { condition: service_started }
     env_file:
       - path: ./.env
         required: false
@@ -120,13 +120,13 @@ services:
 
   # --- Postgres (beerbot + keycloak DBs; empty on first start) ---------------
   #
-  # Every Docker Hub image in this stack (postgres, keycloak-config-cli, minio,
-  # mc) carries `pull_policy: missing`. Docker Hub rate-limits anonymous pulls
+  # Every Docker Hub image in this stack (postgres, keycloak-config-cli, garage)
+  # carries `pull_policy: missing`. Docker Hub rate-limits anonymous pulls
   # per source IP, and ONE 429 aborts the whole `docker compose pull` — every
   # GHCR image in the same run is reported "Interrupted" and the deploy quietly
   # keeps running the old code. Not hypothetical: that is why a fixed migrator
-  # image failed to roll out on 2026-08-06. These four are pinned and are not
-  # meant to move on their own (beerbot-db/minio are already in
+  # image failed to roll out on 2026-08-06. These are pinned and are not
+  # meant to move on their own (beerbot-db/s3 are already in
   # auto_update_skip_services), so skipping them once present costs nothing and
   # takes Docker Hub off the critical path of every app deploy. A fresh host
   # still pulls them — `missing`, not `never`.
@@ -247,47 +247,22 @@ services:
       - ./scripts/keycloak:/config-src:ro
     networks: [proxy_net]
 
-  # --- MinIO (object storage for pictures) ----------------------------------
-  beerbot-minio:
-    image: minio/minio:latest
+  # --- Garage (S3 object storage for pictures) -------------------------------
+  # Replaced MinIO on 2026-10-28 (MinIO no longer publishes images). One-time
+  # cluster layout, access key import and bucket creation run in the Komodo
+  # post_deploy hook (syncs/vps/stacks.toml) via `docker exec beerbot-s3 /garage`,
+  # because the image has no shell for an init container. All steps are idempotent.
+  beerbot-s3:
+    image: dxflrs/garage:v2.5.0
     pull_policy: missing
-    container_name: beerbot-minio
+    container_name: beerbot-s3
     restart: unless-stopped
-    command: server /data --console-address ":9001"
     env_file:
       - path: ./.env
         required: false
     volumes:
-      - minio:/data
-    networks: [proxy_net]
-
-  beerbot-minio-init:
-    # MinIO stopped publishing images (minio/mc and minio/minio are gone from
-    # Docker Hub and quay.io as of 2026-10). The server image already ships
-    # /bin/sh and /usr/bin/mc, which is all this job needs, so reuse it rather
-    # than depend on a second image that can no longer be pulled.
-    image: minio/minio:latest
-    pull_policy: missing
-    container_name: beerbot-minio-init
-    depends_on:
-      beerbot-minio: { condition: service_started }
-    env_file:
-      - path: ./.env
-        required: false
-    # $$VAR (escaped) → read from the CONTAINER env (env_file), not compose interpolation.
-    # Credentials go through MC_HOST_<alias> (URL userinfo) rather than positional
-    # args to `mc alias set`: MINIO_ROOT_PASSWORD can start with '-', which mc would
-    # otherwise parse as a CLI flag ("flag provided but not defined"). Looping on the
-    # actual `mb` doubles as the readiness wait.
-    entrypoint: >
-      /bin/sh -c "
-      export MC_HOST_local=\"http://$$MINIO_ROOT_USER:$$MINIO_ROOT_PASSWORD@beerbot-minio:9000\";
-      until /usr/bin/mc mb --ignore-existing local/beerbot >/dev/null 2>&1; do
-        echo 'waiting for minio...' && sleep 1;
-      done &&
-      echo 'minio ready: bucket beerbot present'
-      "
-    restart: "no"
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - garage:/var/lib/garage
     networks: [proxy_net]
 
   # --- provision (one-shot): schema → head + Keycloak realm, each deploy -----
@@ -324,7 +299,7 @@ services:
     depends_on:
       beerbot-provision: { condition: service_completed_successfully }
       beerbot-db: { condition: service_healthy }
-      beerbot-minio: { condition: service_started }
+      beerbot-s3: { condition: service_started }
       beerbot-keycloak-config: { condition: service_completed_successfully }
     env_file:
       - path: ./.env
@@ -353,7 +328,7 @@ services:
 
 volumes:
   db:
-  minio:
+  garage:
 
 networks:
   proxy_net:

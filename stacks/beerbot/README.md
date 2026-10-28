@@ -13,7 +13,7 @@ not an empty one.
 
 `beerbot-api`, `beerbot-admin-api`, `beerbot-web`, `beerbot-admin-web`,
 `beerbot-landing`, `beerbot-db` (Postgres: `beerbot` + `keycloak`), `beerbot-keycloak`,
-`beerbot-minio` (+init), `beerbot-provision` (one-shot: schema→head + Keycloak
+`beerbot-s3` (Garage S3 store; setup in the Komodo post_deploy hook), `beerbot-provision` (one-shot: schema→head + Keycloak
 bootstrap on each deploy), `beerbot-migrator` (`sync --watch` from old prod).
 
 ## Routing (Caddy, over proxy_net — no host ports)
@@ -24,7 +24,7 @@ bootstrap on each deploy), `beerbot-migrator` (`sync --watch` from old prod).
 | `api.beerbot.home.kki.berlin` | `beerbot-api:80` |
 | `auth.beerbot.home.kki.berlin` | `beerbot-keycloak:8080` |
 | `admin.beerbot.home.kki.berlin` | `beerbot-admin-web:80` (+ `/api` → `beerbot-admin-api:80`, prefix stripped) |
-| `cdn.beerbot.home.kki.berlin` | `beerbot-minio:9000` |
+| `cdn.beerbot.home.kki.berlin` | `beerbot-s3:3900` |
 | `www.beerbot.home.kki.berlin` | `beerbot-landing:80` |
 
 ## One-time setup (owner)
@@ -37,7 +37,7 @@ bootstrap on each deploy), `beerbot-migrator` (`sync --watch` from old prod).
    are built from the `POSTGRES_*` parts.
 3. **Old-prod SSH key** — store the migration key as SOPS-encrypted
    `old-vps.key.enc`, and set `MIGRATOR_TUNNEL_TARGET` in `enc.env`.
-4. **Data dirs** — `/persist/appdata/beerbot/{db,minio}` (created on first run).
+4. **Data** — named Docker volumes `beerbot_db` and `beerbot_garage` (created on first run).
 5. **DNS** — point the six `*.beerbot.home.kki.berlin` names at the box.
 
 ## First deploy

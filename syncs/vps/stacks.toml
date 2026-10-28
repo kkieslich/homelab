@@ -65,7 +65,7 @@ auto_pull = true
 # one appears — so a CI push of a new image rolls out on its own, no webhook/CI
 # hook needed. Note that check only compares digests; the actual fetch is the
 # `compose pull` gated by auto_pull above, which is why that must stay true.
-# Only the services whose image changed are updated (pinned postgres/keycloak/minio
+# Only the services whose image changed are updated (pinned postgres/keycloak/garage
 # are untouched). Poll cadence = Core's default KOMODO_POLL_RATE.
 poll_for_updates = true
 auto_update = true
@@ -75,10 +75,10 @@ auto_update = true
 # pinned, so it can never have an update, but the poller still HEAD-requested it
 # on Docker Hub every 15 minutes and logged a 429 (144 failures in 72h) while
 # burning the lab's shared anonymous rate limit. Skipping it removes pure noise.
-auto_update_skip_services = ["beerbot-db", "beerbot-db-init", "beerbot-keycloak-config", "beerbot-minio", "beerbot-minio-init"]
+auto_update_skip_services = ["beerbot-db", "beerbot-db-init", "beerbot-keycloak-config", "beerbot-s3"]
 # Successful init/provision jobs are expected to exit and must not make the
 # steady-state stack appear unhealthy.
-ignore_services = ["beerbot-db-init", "beerbot-keycloak-config", "beerbot-minio-init", "beerbot-provision"]
+ignore_services = ["beerbot-db-init", "beerbot-keycloak-config", "beerbot-provision"]
 # Deploy-time secret decryption: decrypt the sops-encrypted enc.env in this repo
 # to a gitignored ./.env (which every service reads via env_file) using the host
 # age key, just before compose runs. Also decrypt fcm-api.json.enc → ./fcm-api.json
@@ -99,4 +99,12 @@ ignore_services = ["beerbot-db-init", "beerbot-keycloak-config", "beerbot-minio-
 path = ""
 shell_mode = true
 command = '''set -eu; K=/etc/komodo/age-key.txt; R=.registry.env; trap 'rm -f "$R"; [ -n "${CID:-}" ] && docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary fcm-api.json.enc > fcm-api.json && chmod 600 fcm-api.json; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary old-vps.key.enc > old-vps.key && chmod 600 old-vps.key; SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary registry.env.enc > "$R" && chmod 600 "$R"; set -a; . ./"$R"; set +a; printf %s "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin >/dev/null; KC_IMG=ghcr.io/beerbotapp/beerbot/keycloak:latest; docker pull -q "$KC_IMG" >/dev/null; mkdir -p scripts/keycloak; CID=$(docker create "$KC_IMG"); docker cp "$CID":/opt/keycloak/realm/beerbot-realm.json scripts/keycloak/beerbot-realm.json'''
-
+# Garage one-time setup, idempotent on every deploy: give the single node a
+# layout role (only while the layout is still at version 0), import the access
+# key from the decrypted .env (MINIO_ROOT_USER/PASSWORD = Garage key id/secret),
+# create the bucket and grant the key on it. Runs via `docker exec` because the
+# Garage image has no shell for an init container.
+[stack.config.post_deploy]
+path = ""
+shell_mode = true
+command = '''set -eu; G="docker exec beerbot-s3 /garage"; i=0; until $G status >/dev/null 2>&1; do i=$((i+1)); [ $i -lt 60 ] || { echo "garage not ready"; exit 1; }; sleep 1; done; if $G layout show 2>/dev/null | grep -q "Current cluster layout version: 0"; then N=$($G node id -q 2>/dev/null | cut -d@ -f1); $G layout assign -z dc1 -c 50G "$N" >/dev/null; $G layout apply --version 1 >/dev/null; echo "garage layout initialised"; fi; KID=$(sed -n "s/^MINIO_ROOT_USER=//p" .env | tr -d "\"\'"); KSEC=$(sed -n "s/^MINIO_ROOT_PASSWORD=//p" .env | tr -d "\"\'"); $G key info beerbot >/dev/null 2>&1 || $G key import --yes -n beerbot "$KID" "$KSEC" >/dev/null; $G bucket info beerbot >/dev/null 2>&1 || $G bucket create beerbot >/dev/null; $G bucket allow --read --write --owner beerbot --key beerbot >/dev/null; echo "garage ready: bucket beerbot, key beerbot"'''

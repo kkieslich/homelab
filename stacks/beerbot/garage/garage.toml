@@ -1,0 +1,21 @@
+# Garage — single-node S3 store for beerbot pictures (replaced MinIO, whose
+# images stopped being published). Secrets are NOT here: rpc_secret and the
+# admin token come from GARAGE_RPC_SECRET / GARAGE_ADMIN_TOKEN in the
+# SOPS-encrypted enc.env (Garage reads those env vars).
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+# sqlite survives unclean shutdowns better than lmdb; plenty fast at this scale.
+db_engine = "sqlite"
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+# The .NET client signs with us-east-1 (AuthenticationRegion), so Garage must
+# advertise the same region or every signature is rejected.
+s3_region = "us-east-1"
+api_bind_addr = "[::]:3900"
+
+[admin]
+api_bind_addr = "[::]:3903"
