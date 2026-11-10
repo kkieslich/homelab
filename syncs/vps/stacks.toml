@@ -130,3 +130,24 @@ auto_update = false
 path = ""
 shell_mode = true
 command = 'set -eu; K=/etc/komodo/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env; mkdir -p certs; for f in signing-certificate encryption-certificate; do SOPS_AGE_KEY_FILE=$K sops -d --input-type binary --output-type binary $f.pfx.enc > certs/$f.pfx; chmod 644 certs/$f.pfx; done'
+
+# Public WireGuard VPN (wg-easy). UDP 51820 is open in the VPS firewall; the admin UI
+# is localhost-only (SSH tunnel). The home server joins as a client.
+[[stack]]
+name = "vps-vpn"
+deploy = true
+tags = ["prod", "vps"]
+[stack.config]
+server = "vps"
+git_provider = "github.com"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/vps-vpn"
+file_paths = ["docker-compose.yml"]
+auto_pull = true
+poll_for_updates = true
+auto_update = true
+[stack.config.pre_deploy]
+path = ""
+shell_mode = true
+command = 'K=/etc/komodo/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env'

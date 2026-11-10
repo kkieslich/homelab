@@ -1,0 +1,67 @@
+name: "vps-vpn"
+# WireGuard VPN (wg-easy) on the VPS — the public VPN endpoint.
+#
+# The VPS has a real public IP, unlike the home server (DS-Lite at a temporary home),
+# so clients connect here. The home server joins as an ordinary WireGuard client that
+# dials OUT (persistent keepalive), which works behind any NAT, and is then reachable
+# from every other client at its VPN address.
+#
+# Admin UI: localhost-only on the VPS (like Komodo). Open it with
+#   ssh -L 51821:localhost:51821 root@167.86.127.81   →   http://localhost:51821
+# Admin password: /root/wg-easy-admin.txt on the VPS (also in enc.env).
+services:
+  wg-easy:
+    # v15 major pinned: Global Auto Update follows 15.x patches, never a major jump.
+    image: ghcr.io/wg-easy/wg-easy:15
+    container_name: wg-easy
+    restart: unless-stopped
+    env_file:
+      # INIT_USERNAME / INIT_PASSWORD, decrypted from enc.env by pre_deploy.
+      - path: ./.env
+        required: true
+    environment:
+      - PORT=51821
+      # The UI is only reachable through an SSH tunnel to localhost, i.e. plain HTTP;
+      # INSECURE just disables wg-easy's HTTPS-or-nothing login check.
+      - INSECURE=true
+      - DISABLE_IPV6=true
+      # Unattended first start (read ONLY while the data volume is empty; afterwards
+      # the UI owns the config and these have no effect).
+      - INIT_ENABLED=true
+      - INIT_HOST=vpn.beerbot.app
+      - INIT_PORT=51820
+      - INIT_DNS=1.1.1.1,8.8.8.8
+      # Split tunnel by default: only VPN addresses go through the tunnel. Make a
+      # single client a full tunnel (exit via the VPS) in the UI by setting its
+      # Allowed IPs to 0.0.0.0/0.
+      - INIT_ALLOWED_IPS=10.8.0.0/24
+    ports:
+      - "51820:51820/udp"
+      - "127.0.0.1:51821:51821/tcp"
+    volumes:
+      - data:/etc/wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+    # Use the image's iptables-nft backend (same fix as stacks/wg-easy): works on any
+    # nftables kernel, so wg-quick's MASQUERADE never depends on legacy modules.
+    # Overriding `entrypoint` clears the image CMD, so `command` restores it verbatim.
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        ln -sf /usr/sbin/iptables-nft          /etc/alternatives/iptables
+        ln -sf /usr/sbin/iptables-nft-restore  /etc/alternatives/iptables-restore
+        ln -sf /usr/sbin/iptables-nft-save     /etc/alternatives/iptables-save
+        ln -sf /usr/sbin/ip6tables-nft         /etc/alternatives/ip6tables
+        ln -sf /usr/sbin/ip6tables-nft-restore /etc/alternatives/ip6tables-restore
+        ln -sf /usr/sbin/ip6tables-nft-save    /etc/alternatives/ip6tables-save
+        exec docker-entrypoint.sh "$$@"
+      - --
+    command: ["/usr/bin/dumb-init", "node", "server/index.mjs"]
+
+volumes:
+  data:

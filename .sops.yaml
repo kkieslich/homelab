@@ -15,7 +15,7 @@ keys:
   - &vps age1y39ne0da5atqzu829u5879pjcchtltkqrm55jawrvun00m2zrcrqxuq6e0
 creation_rules:
   # Stacks deployed on the VPS: encrypt to both, so either host can decrypt.
-  - path_regex: stacks/(beerbot|vps-proxy|beerbot-legacy)/.*(enc\.env|\.enc)$
+  - path_regex: stacks/(beerbot|vps-proxy|beerbot-legacy|vps-vpn)/.*(enc\.env|\.enc)$
     key_groups:
       - age:
           - *um870
