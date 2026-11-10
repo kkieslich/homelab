@@ -46,6 +46,15 @@ localhost:9120 via `ssh -L`) that syncs only `syncs/vps/`:
 The old Contabo VPS (194.163.165.188, no DNS pointing at it anymore) keeps its
 stopped app containers and DB as a rollback for 1–2 weeks, then gets cancelled.
 
+## VPN (since 2026-11-10)
+
+wg-easy runs on the VPS (`stacks/vps-vpn`, Komodo stack `vps-vpn`): public endpoint
+`vpn.beerbot.app:51820/udp`, split tunnel (10.8.0.0/24) by default. Admin UI is
+localhost-only: `ssh -L 51821:localhost:51821 root@167.86.127.81` → http://localhost:51821
+(password in /root/wg-easy-admin.txt). Client `home-server` (10.8.0.2) is created for the
+UM870, which still has to join (NixOS WireGuard client with keepalive — DS-Lite means it
+must dial out). The old home `stacks/wg-easy` stays disabled.
+
 ## Cross-stack architecture (when everything runs at home)
 
 - **proxy** (Caddy) terminates TLS for `*.home.kki.berlin` with HTTP-01 (needs
