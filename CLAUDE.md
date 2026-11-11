@@ -51,9 +51,10 @@ stopped app containers and DB as a rollback for 1–2 weeks, then gets cancelled
 wg-easy runs on the VPS (`stacks/vps-vpn`, Komodo stack `vps-vpn`): public endpoint
 `vpn.beerbot.app:51820/udp`, split tunnel (10.8.0.0/24) by default. Admin UI is
 localhost-only: `ssh -L 51821:localhost:51821 root@167.86.127.81` → http://localhost:51821
-(password in /root/wg-easy-admin.txt). Client `home-server` (10.8.0.2) is created for the
-UM870, which still has to join (NixOS WireGuard client with keepalive — DS-Lite means it
-must dial out). The old home `stacks/wg-easy` stays disabled.
+(password in /root/wg-easy-admin.txt). The UM870 is client `home-server` (10.8.0.2), joined
+since 2026-11-11 via `../home-infrastructure/nixos/modules/vps-vpn.nix` (dials out with a
+25 s keepalive because of DS-Lite). wg-easy creates clients with keepalive 0; set 25 for
+any device that must be reachable. The old home `stacks/wg-easy` stays disabled.
 
 ## Cross-stack architecture (when everything runs at home)
 
