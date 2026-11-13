@@ -1,0 +1,36 @@
+name: "vps-rustdesk"
+# Self-hosted RustDesk server on the VPS: ID/rendezvous (hbbs) + relay (hbbr).
+#
+# Client setup (Settings → Network → ID/Relay server):
+#   ID server:    rustdesk.beerbot.app
+#   Relay server: rustdesk.beerbot.app
+#   Key:          contents of /var/lib/docker/volumes/vps-rustdesk_data/_data/id_ed25519.pub
+# `-k _` makes hbbs/hbbr reject clients without that key, so strangers cannot use
+# the relay. The keypair is generated on first start; losing the volume means
+# re-entering a new key on every client.
+#
+# network_mode host: hbbs needs the clients' real source IPs for NAT hole punching.
+# Docker therefore publishes no ports. The firewall (ufw) opens 21115-21117/tcp and
+# 21116/udp; the web-client ports 21118/21119 stay closed.
+x-rustdesk: &rustdesk
+  # Major 1 pinned: Global Auto Update follows 1.x releases.
+  image: rustdesk/rustdesk-server:1
+  restart: unless-stopped
+  network_mode: host
+  volumes:
+    - data:/root
+
+services:
+  hbbs:
+    <<: *rustdesk
+    container_name: rustdesk-hbbs
+    command: ["hbbs", "-r", "rustdesk.beerbot.app:21117", "-k", "_"]
+    depends_on:
+      - hbbr
+  hbbr:
+    <<: *rustdesk
+    container_name: rustdesk-hbbr
+    command: ["hbbr", "-k", "_"]
+
+volumes:
+  data:

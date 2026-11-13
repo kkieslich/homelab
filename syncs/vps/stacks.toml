@@ -151,3 +151,18 @@ auto_update = true
 path = ""
 shell_mode = true
 command = 'K=/etc/komodo/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env'
+
+[[stack]]
+name = "vps-rustdesk"
+deploy = true
+tags = ["prod", "vps"]
+[stack.config]
+server = "vps"
+git_provider = "github.com"
+repo = "kkieslich/homelab"
+branch = "main"
+run_directory = "stacks/vps-rustdesk"
+file_paths = ["docker-compose.yml"]
+auto_pull = true
+poll_for_updates = true
+auto_update = true
