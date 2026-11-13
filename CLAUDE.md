@@ -56,6 +56,13 @@ since 2026-11-11 via `../home-infrastructure/nixos/modules/vps-vpn.nix` (dials o
 25 s keepalive because of DS-Lite). wg-easy creates clients with keepalive 0; set 25 for
 any device that must be reachable. The old home `stacks/wg-easy` stays disabled.
 
+## RustDesk (since 2026-11-13)
+
+`stacks/vps-rustdesk` (hbbs + hbbr, host network, `-k _` = key required). Clients use
+ID + relay server `rustdesk.beerbot.app` and the key from
+`/var/lib/docker/volumes/vps-rustdesk_data/_data/id_ed25519.pub` on the VPS. ufw opens
+21115-21117/tcp + 21116/udp (rules set by hand, not in git).
+
 ## Cross-stack architecture (when everything runs at home)
 
 - **proxy** (Caddy) terminates TLS for `*.home.kki.berlin` with HTTP-01 (needs
