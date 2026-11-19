@@ -23,6 +23,11 @@ file_paths = ["docker-compose.yml"]
 auto_pull = false
 poll_for_updates = true
 auto_update = true
+# enc.env holds the basic-auth hashes the Caddyfile reads as {$VAR}.
+[stack.config.pre_deploy]
+path = ""
+shell_mode = true
+command = 'K=/etc/komodo/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type dotenv --output-type dotenv enc.env > .env && chmod 600 .env'
 
 # BeerBot — runs the GHCR images built by github.com/BeerbotApp/BeerBot. Live prod
 # data is forward-synced by the in-stack migrator (parallel run). The images are

@@ -8,6 +8,10 @@ services:
     # Config is mounted as a directory so a git-pulled Caddyfile (new inode) is
     # seen by --watch.
     command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --watch
+    env_file:
+      # Decrypted from the repo's enc.env by Komodo pre_deploy (basic-auth hashes).
+      - path: ./.env
+        required: true
     ports:
       - "80:80"
       - "443:443"

@@ -40,6 +40,15 @@ www.beerbot.home.kki.berlin {
     reverse_proxy beerbot-landing:80
 }
 
+# --- fleet: host process on the VPS, bound to proxy_net's gateway address ---
+fleet.home.kki.berlin {
+    basic_auth {
+        kolja {$FLEET_PASSWORD_HASH}
+    }
+    encode gzip zstd
+    reverse_proxy 172.18.0.1:8090
+}
+
 # --- old (pre-Expo) beerbot, stacks/beerbot-legacy ---
 beerbot.app {
     encode gzip zstd
