@@ -48,4 +48,12 @@ vpn.home.kki.berlin {
     reverse_proxy wg-easy:80
 }
 
+fleet.home.kki.berlin {
+    basic_auth {
+        kolja {$FLEET_PASSWORD_HASH}
+    }
+    encode gzip zstd
+    reverse_proxy 172.18.0.1:8090
+}
+
 # beerbot is served by the VPS (stacks/vps-proxy) since 2026-10-28.
