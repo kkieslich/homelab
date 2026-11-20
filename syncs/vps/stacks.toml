@@ -35,10 +35,7 @@ command = 'K=/etc/komodo/age-key.txt; SOPS_AGE_KEY_FILE=$K sops -d --input-type 
 # below (no Komodo registry account is involved).
 [[stack]]
 name = "beerbot"
-# TEMP-DISABLED 2026-11-19: stopped on purpose (containers kept, `compose stop`).
-# To restore: set deploy/poll_for_updates/auto_update back to true and push;
-# the sync redeploys it.
-deploy = false
+deploy = true
 tags = ["prod", "vps"]
 [stack.config]
 server = "vps"
@@ -75,8 +72,8 @@ auto_pull = true
 # `compose pull` gated by auto_pull above, which is why that must stay true.
 # Only the services whose image changed are updated (pinned postgres/keycloak/garage
 # are untouched). Poll cadence = Core's default KOMODO_POLL_RATE.
-poll_for_updates = false
-auto_update = false
+poll_for_updates = true
+auto_update = true
 # Keep stateful data services and their matching init jobs out of unattended
 # digest rollouts. Application and identity images still update automatically.
 # beerbot-keycloak-config is here for a different reason: its image is version-
